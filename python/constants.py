@@ -27,6 +27,8 @@ LOGS_DIR_NAME: str = "logs"
 TRAINING_DIR_NAME: str = "training"
 
 # Required subdirectories under models/ (created when missing).
+# ``base`` remains for Drive layout compatibility; Hugging Face base models are
+# cached on the Colab local SSD via ``DEFAULT_MODEL_CACHE_ROOT`` / ``Workspace.model_cache``.
 MODELS_BASE_DIR_NAME: str = "base"
 MODELS_ADAPTERS_DIR_NAME: str = "adapters"
 MODELS_MERGED_DIR_NAME: str = "merged"
@@ -67,8 +69,12 @@ TRAINING_REPOSITORY_MARKERS: tuple[str, ...] = (
 )
 
 # ---------------------------------------------------------------------------
-# Base model cache (under models/base/)
+# Hugging Face base model cache (Colab local SSD — not Google Drive)
 # ---------------------------------------------------------------------------
+
+# Default Colab runtime path for HF base-model snapshots.
+# Adapters / checkpoints / merged / exports remain under AIODOO/models/ on Drive.
+DEFAULT_MODEL_CACHE_ROOT: Path = Path("/content/aiodoo-model-cache")
 
 # Required marker files for a usable Hugging Face model snapshot.
 MODEL_REQUIRED_FILES: tuple[str, ...] = ("config.json",)
@@ -106,6 +112,7 @@ __all__ = [
     "DATASETS_DIR_NAME",
     "DATASETS_RELATIVE",
     "DEFAULT_DRIVE_MOUNT_RELATIVE",
+    "DEFAULT_MODEL_CACHE_ROOT",
     "EXPERIMENTS_DIR_NAME",
     "EXPERIMENTS_RELATIVE",
     "GOOGLE_DRIVE_ROOT_NAME",

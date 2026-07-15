@@ -20,8 +20,12 @@ def mounted_drive(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def workspace_config(mounted_drive: Path) -> object:
-    return load_config(drive_mount_root=mounted_drive, auto_mount_drive=False)
+def workspace_config(mounted_drive: Path, tmp_path: Path) -> object:
+    return load_config(
+        drive_mount_root=mounted_drive,
+        auto_mount_drive=False,
+        model_cache_root=tmp_path / "aiodoo-model-cache",
+    )
 
 
 def test_workspace_from_config_paths(workspace_config: object) -> None:
@@ -33,6 +37,10 @@ def test_workspace_from_config_paths(workspace_config: object) -> None:
     assert ws.logs.name == "logs"
     assert ws.training.name == "training"
     assert ws.training_repository.name == "aiodoo-training"
+    assert ws.model_cache == workspace_config.model_cache_root
+    assert ws.adapters == ws.models / "adapters"
+    assert ws.exports == ws.models / "exports"
+    assert ws.checkpoints == ws.adapters
 
 
 def test_ensure_workspace_layout_creates_directories(workspace_config: object) -> None:
@@ -45,6 +53,14 @@ def test_ensure_workspace_layout_creates_directories(workspace_config: object) -
     for name in REQUIRED_MODELS_SUBDIRS:
         assert (ws.models / name).is_dir()
 
+    assert ws.model_cache.is_dir()
+
+
+def test_colab_default_model_cache_is_local_ssd() -> None:
+    from constants import DEFAULT_MODEL_CACHE_ROOT
+
+    assert load_config().model_cache_root == DEFAULT_MODEL_CACHE_ROOT
+    assert DEFAULT_MODEL_CACHE_ROOT == Path("/content/aiodoo-model-cache")
 
 def test_ensure_workspace_layout_does_not_remove_existing_files(
     workspace_config: object,

@@ -23,7 +23,11 @@ from workspace import Workspace, ensure_workspace_layout
 def prepared(tmp_path: Path) -> tuple[Workspace, ExperimentStore]:
     mount = tmp_path / "MyDrive"
     mount.mkdir()
-    config = load_config(drive_mount_root=mount, auto_mount_drive=False)
+    config = load_config(
+        drive_mount_root=mount,
+        auto_mount_drive=False,
+        model_cache_root=tmp_path / "aiodoo-model-cache",
+    )
     ws = Workspace.from_config(config)
     ensure_workspace_layout(ws)
     return ws, ExperimentStore(workspace=ws)
@@ -45,7 +49,7 @@ def _write_experiment(ws: Workspace, experiment_id: str = "EXP-0001") -> Path:
     (config_dir / "evaluation.yaml").write_text("metrics: []\n", encoding="utf-8")
     (config_dir / "export.yaml").write_text("merge_adapter: false\n", encoding="utf-8")
     (ws.datasets / "v1.0.0").mkdir(parents=True, exist_ok=True)
-    model_dir = ws.models / "base" / "Qwen__Qwen3-8B"
+    model_dir = ws.model_cache / "Qwen__Qwen3-8B"
     model_dir.mkdir(parents=True, exist_ok=True)
     (model_dir / "config.json").write_text("{}", encoding="utf-8")
     (model_dir / "model.safetensors").write_bytes(b"x")
@@ -58,13 +62,12 @@ def test_build_training_context_resolves_paths(prepared: tuple[Workspace, Experi
     experiment = store.load("EXP-0001")
     context = build_training_context(ws, experiment)
 
-    assert context.model_path.name == "Qwen__Qwen3-8B"
+    assert context.model_path == ws.model_cache / "Qwen__Qwen3-8B"
     assert context.dataset_path == ws.datasets / "v1.0.0"
     assert context.adapter_output == ws.models / "adapters" / "EXP-0001"
     assert context.logs_output == ws.logs / "EXP-0001"
     assert context.training_repository == ws.training_repository
     assert context.training_config_path.name == "training.yaml"
-
 
 def test_run_training_invokes_public_entrypoint(
     prepared: tuple[Workspace, ExperimentStore],

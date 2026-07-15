@@ -112,8 +112,9 @@ validates required directories, and creates missing folders.
 Phase 2 clones or updates `aiodoo-training` from GitHub via subprocess git
 commands.
 
-Phase 3 ensures Hugging Face base models under
-`AIODOO/models/base/<org>__<name>/` (collision-safe; model id from experiment).
+Phase 3 ensures Hugging Face base models under the Colab local SSD cache
+``/content/aiodoo-model-cache/<org>__<name>/`` (collision-safe; model id from
+experiment). Training artifacts remain on Google Drive.
 
 Phase 4 discovers / loads `EXP-NNNN` experiments and YAML configs (no training
 interpretation).
@@ -125,16 +126,17 @@ Phase 6 provides `notebooks/01_train.ipynb` as a thin orchestration notebook.
 
 ---
 
-## Google Drive workspace layout
+## Storage layout
+
+### Google Drive (persistent) — `AIODOO/`
 
 ```text
 AIODOO/
 ├── datasets/
 ├── models/
-│   ├── base/
-│   │   └── Qwen__Qwen3-8B/     # HF id org/name → org__name
+│   ├── base/                   # layout placeholder (HF base models are NOT stored here)
 │   ├── adapters/
-│   │   └── EXP-0001/
+│   │   └── EXP-0001/           # adapters + checkpoints/
 │   ├── merged/
 │   │   └── EXP-0001/
 │   └── exports/
@@ -148,6 +150,35 @@ AIODOO/
     └── aiodoo-training/
 ```
 
+### Colab local SSD (temporary) — Hugging Face base models only
+
+```text
+/content/aiodoo-model-cache/
+└── Qwen__Qwen3-8B/             # HF id org/name → org__name
+```
+
+**Why local SSD for base models?**  
+8B (and larger) snapshots are multi‑GB. Caching them on Drive wastes quota and
+is slow. Colab’s local disk is fast enough for repeated `ensure()` within a
+runtime session.
+
+**Why adapters / checkpoints stay on Drive?**  
+They are the durable training outputs that must survive runtime reconnects and
+be available across Colab sessions. `aiodoo-training` does not change: Colab
+still sets `AIODOO_COLAB_MODEL_PATH` to the resolved local model directory and
+points artifact overlays at Drive paths.
+
+**No changes required in `aiodoo-training`.** Path overlays continue to work
+exactly as before.
+
+**Runtime behavior**
+
+Base Hugging Face models are intentionally **not persisted to Google Drive**.
+If the Colab runtime is restarted or reset, the local SSD cache is lost.
+On the next training run, `ModelStore.ensure()` automatically verifies the cache
+and re-downloads the model from Hugging Face when necessary. Training artifacts
+(adapters, checkpoints, logs, exports, and datasets) remain safely stored on
+Google Drive.
 ---
 
 ## Training orchestration (`trainer.py`)
@@ -160,17 +191,17 @@ ensure aiodoo-training
 load EXP-NNNN
   (Drive experiments/ OR aiodoo-training production configs)
         ↓
-ensure model (models/base/<org>__<name>)
+ensure model (/content/aiodoo-model-cache/<org>__<name>)
         ↓
 build TrainingContext
   (prefers configs/experiments/production/<EXP>/experiment.yaml)
         ↓
 subprocess: python3 train.py --config …
   + AIODOO_COLAB_* path overlays
+  (AIODOO_COLAB_MODEL_PATH → local SSD model dir; artifacts → Drive)
         ↓
 TrainingResult (execution metadata only)
 ```
-
 Canonical production experiment: **EXP-0001** in aiodoo-training  
 (`configs/experiments/production/EXP-0001/`).
 

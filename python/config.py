@@ -8,6 +8,7 @@ from pathlib import Path
 from constants import (
     AIODOO_ROOT_RELATIVE,
     DEFAULT_DRIVE_MOUNT_RELATIVE,
+    DEFAULT_MODEL_CACHE_ROOT,
     TRAINING_REPOSITORY_URL,
 )
 
@@ -24,6 +25,9 @@ class ColabConfig:
 
     # Remote URL for the frozen training framework repository.
     training_repository_url: str
+
+    # Colab local SSD root for Hugging Face base-model snapshots.
+    model_cache_root: Path = DEFAULT_MODEL_CACHE_ROOT
 
     # Default git branch when none is specified for clone / checkout.
     default_branch: str = "main"
@@ -43,6 +47,7 @@ class ColabConfig:
             drive_mount_root=Path("/content") / DEFAULT_DRIVE_MOUNT_RELATIVE,
             aiodoo_root_relative=AIODOO_ROOT_RELATIVE,
             training_repository_url=TRAINING_REPOSITORY_URL,
+            model_cache_root=DEFAULT_MODEL_CACHE_ROOT,
         )
 
 
@@ -50,6 +55,7 @@ def load_config(
     *,
     drive_mount_root: Path | None = None,
     training_repository_url: str | None = None,
+    model_cache_root: Path | None = None,
     default_branch: str = "main",
     auto_mount_drive: bool = True,
 ) -> ColabConfig:
@@ -64,6 +70,7 @@ def load_config(
         drive_mount_root=drive_mount_root or base.drive_mount_root,
         aiodoo_root_relative=base.aiodoo_root_relative,
         training_repository_url=training_repository_url or base.training_repository_url,
+        model_cache_root=model_cache_root if model_cache_root is not None else base.model_cache_root,
         default_branch=default_branch,
         auto_mount_drive=auto_mount_drive,
     )

@@ -1,4 +1,4 @@
-"""AIODOO workspace layout on Google Drive."""
+"""AIODOO workspace layout on Google Drive (plus local model cache)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,9 @@ from constants import (
     DATASETS_DIR_NAME,
     EXPERIMENTS_DIR_NAME,
     LOGS_DIR_NAME,
+    MODELS_ADAPTERS_DIR_NAME,
     MODELS_DIR_NAME,
+    MODELS_EXPORTS_DIR_NAME,
     REQUIRED_MODELS_SUBDIRS,
     REQUIRED_TOP_LEVEL_DIRS,
     TRAINING_DIR_NAME,
@@ -25,7 +27,7 @@ logger = logging.getLogger("aiodoo_colab")
 
 @dataclass(frozen=True, slots=True)
 class Workspace:
-    """Resolved AIODOO workspace paths on Google Drive."""
+    """Resolved AIODOO workspace paths (Drive artifacts + local model cache)."""
 
     drive_mount_root: Path
     root: Path
@@ -34,11 +36,32 @@ class Workspace:
     experiments: Path
     logs: Path
     training: Path
+    # Colab local SSD (or override) for Hugging Face base models only.
+    model_cache: Path
 
     @property
     def training_repository(self) -> Path:
         """Path to the cloned ``aiodoo-training`` repository."""
         return self.training / TRAINING_REPOSITORY_NAME
+
+    @property
+    def adapters(self) -> Path:
+        """Drive path for LoRA / QLoRA adapters (persistent)."""
+        return self.models / MODELS_ADAPTERS_DIR_NAME
+
+    @property
+    def exports(self) -> Path:
+        """Drive path for export bundles (persistent)."""
+        return self.models / MODELS_EXPORTS_DIR_NAME
+
+    @property
+    def checkpoints(self) -> Path:
+        """
+        Drive root for checkpoint trees (persistent).
+
+        Per-experiment checkpoints live under ``adapters/<EXP>/checkpoints``.
+        """
+        return self.adapters
 
     @classmethod
     def from_config(cls, config: ColabConfig) -> Workspace:
@@ -52,6 +75,7 @@ class Workspace:
             experiments=root / EXPERIMENTS_DIR_NAME,
             logs=root / LOGS_DIR_NAME,
             training=root / TRAINING_DIR_NAME,
+            model_cache=config.model_cache_root,
         )
 
     def required_top_level_paths(self) -> tuple[Path, ...]:
@@ -82,7 +106,8 @@ def ensure_workspace_layout(workspace: Workspace) -> Workspace:
     Validate and create missing workspace directories.
 
     Creates top-level ``datasets``, ``models``, ``experiments``, ``logs``,
-    ``training`` and required ``models/{base,adapters,merged,exports}`` only.
+    ``training`` and required ``models/{base,adapters,merged,exports}`` on Drive,
+    plus the local ``model_cache`` directory for Hugging Face base models.
     Does not modify existing dataset or experiment contents.
     """
     if not workspace.root.parent.exists():
@@ -98,7 +123,10 @@ def ensure_workspace_layout(workspace: Workspace) -> Workspace:
     for path in workspace.required_models_subpaths():
         _ensure_directory(path)
 
+    _ensure_directory(workspace.model_cache)
+
     logger.info("Workspace layout verified at %s", workspace.root)
+    logger.info("Local HF model cache at %s", workspace.model_cache)
     return workspace
 
 

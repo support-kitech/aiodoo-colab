@@ -17,9 +17,13 @@ from workspace import Workspace
 def workspace(tmp_path: Path) -> Workspace:
     mount = tmp_path / "MyDrive"
     mount.mkdir()
-    config = load_config(drive_mount_root=mount, auto_mount_drive=False)
+    config = load_config(
+        drive_mount_root=mount,
+        auto_mount_drive=False,
+        model_cache_root=tmp_path / "aiodoo-model-cache",
+    )
     ws = Workspace.from_config(config)
-    (ws.models / "base").mkdir(parents=True)
+    ws.model_cache.mkdir(parents=True)
     return ws
 
 
@@ -37,10 +41,9 @@ def test_deterministic_model_dirname_preserves_org() -> None:
     assert deterministic_model_dirname("Standalone-Model") == "Standalone-Model"
 
 
-def test_local_path_under_models_base(workspace: Workspace) -> None:
+def test_local_path_under_model_cache(workspace: Workspace) -> None:
     store = ModelStore(workspace=workspace, model_id="acme/Example-Model")
-    assert store.local_path() == workspace.models / "base" / "acme__Example-Model"
-
+    assert store.local_path() == workspace.model_cache / "acme__Example-Model"
 
 def test_exists_false_when_missing(workspace: Workspace) -> None:
     store = ModelStore(workspace=workspace, model_id="acme/Missing")

@@ -10,7 +10,6 @@ from pathlib import Path
 from constants import (
     MODEL_REQUIRED_FILES,
     MODEL_WEIGHT_SUFFIXES,
-    MODELS_BASE_DIR_NAME,
 )
 from exceptions import (
     ModelDownloadError,
@@ -47,7 +46,7 @@ def deterministic_model_dirname(model_id: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class ModelStore:
-    """Ensure a Hugging Face model is available under ``workspace.models/base``."""
+    """Ensure a Hugging Face model is available under ``workspace.model_cache``."""
 
     workspace: Workspace
     model_id: str
@@ -58,7 +57,7 @@ class ModelStore:
 
     def local_path(self) -> Path:
         """Absolute path where the model snapshot is (or will be) stored."""
-        return self.workspace.models / MODELS_BASE_DIR_NAME / self.local_dirname
+        return self.workspace.model_cache / self.local_dirname
 
     def exists(self) -> bool:
         """Return True when the local model directory exists and verifies."""
