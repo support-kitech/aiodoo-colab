@@ -1,0 +1,29 @@
+# Tooling configuration only.
+# This repository is NOT packaged or published.
+# Run from the repository root with: python3 main.py
+# Do not pip install this repository.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["python", "tests", "main.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+files = ["python", "main.py"]
+mypy_path = "python"
+
+
+[[tool.mypy.overrides]]
+module = ["google", "google.colab", "huggingface_hub", "yaml"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["python"]
