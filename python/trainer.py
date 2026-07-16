@@ -68,13 +68,19 @@ def _resolve_dataset_path(workspace: Workspace, experiment: Experiment) -> Path:
     1. ``dataset_root`` if present and absolute / existing
     2. ``workspace.datasets / dataset_version`` when version is a string
     """
+    override = os.environ.get("AIODOO_COLAB_DATASET_PATH")
+
+    if override:
+        return Path(override)
+
     data = experiment.configs.dataset.data
+
     root = data.get("dataset_root")
-    logger.info("root: %s", root)
     if isinstance(root, str) and root.strip():
         path = Path(root)
         if path.is_absolute():
             return path
+
         candidate = workspace.datasets / path
         if candidate.exists():
             return candidate
@@ -82,6 +88,7 @@ def _resolve_dataset_path(workspace: Workspace, experiment: Experiment) -> Path:
     version = experiment.dataset_version
     if isinstance(version, str) and version.strip():
         return workspace.datasets / version
+
 
     raise LauncherError(
         f"Experiment {experiment.experiment_id!r} has no resolvable dataset path "
