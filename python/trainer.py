@@ -156,7 +156,7 @@ def build_training_context(
     """
     resolved_model = model_path or _resolve_model_path(workspace, experiment)
     dataset_path = _resolve_dataset_path(workspace, experiment)
-    logger.info("dataset_path: %s", dataset_path)
+    logger.info("dataset_path: %s", dataset_path90)
     outputs = _output_paths(workspace, experiment.experiment_id)
     logger.info("outputs: %s", outputs)
     config_path = _resolve_training_config_path(workspace, experiment)
