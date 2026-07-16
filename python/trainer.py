@@ -70,6 +70,7 @@ def _resolve_dataset_path(workspace: Workspace, experiment: Experiment) -> Path:
     """
     data = experiment.configs.dataset.data
     root = data.get("dataset_root")
+    logger.info("root: %s", root)
     if isinstance(root, str) and root.strip():
         path = Path(root)
         if path.is_absolute():
