@@ -65,7 +65,9 @@ def test_build_training_context_resolves_paths(prepared: tuple[Workspace, Experi
     assert context.model_path == ws.model_cache / "Qwen__Qwen3-8B"
     assert context.dataset_path == ws.datasets / "v1.0.0"
     assert context.adapter_output == ws.models / "adapters" / "EXP-0001"
-    assert context.logs_output == ws.logs / "EXP-0001"
+    assert context.checkpoints_output == ws.training / "cache" / "EXP-0001" / "checkpoints"
+    assert context.metrics_output == ws.experiments / "EXP-0001" / "metrics"
+    assert context.logs_output == ws.experiments / "EXP-0001" / "logs"
     assert context.training_repository == ws.training_repository
     assert context.training_config_path.name == "training.yaml"
 
@@ -81,19 +83,37 @@ def test_run_training_invokes_public_entrypoint(
     experiment = store.load("EXP-0001")
     context = build_training_context(ws, experiment)
 
-    completed = type("R", (), {"returncode": 0})()
+    class _FakeStdout:
+        def __iter__(self):
+            return iter(["INFO boot\n", "{'loss': 0.5, 'epoch': 0.1}\n"])
 
-    with patch("trainer.subprocess.run", return_value=completed) as run_mock:
-        result = run_training(context)
+    class _FakeProc:
+        stdout = _FakeStdout()
+
+        def wait(self, timeout: float | None = None) -> int:
+            _ = timeout
+            return 0
+
+        def kill(self) -> None:
+            return None
+
+    lines: list[str] = []
+    with patch("trainer.subprocess.Popen", return_value=_FakeProc()) as popen_mock:
+        result = run_training(context, on_log_line=lines.append)
 
     assert result.success is True
     assert result.exit_code == 0
     assert result.adapter_path == context.adapter_output
-    assert context.adapter_output.is_dir()
-    assert context.logs_output.is_dir()
-    args = run_mock.call_args.args[0]
-    assert args[1].endswith("train.py")
+    assert lines == ["INFO boot", "{'loss': 0.5, 'epoch': 0.1}"]
+    args = popen_mock.call_args.args[0]
+    assert args[1] == "-u"
+    assert args[2].endswith("train.py")
     assert "--config" in args
+    env = popen_mock.call_args.kwargs["env"]
+    assert env["AIODOO_WORKSPACE_ROOT"] == str(ws.root)
+    assert env["AIODOO_COLAB_MODEL_PATH"] == str(context.model_path)
+    assert env["PYTHONUNBUFFERED"] == "1"
+    assert "AIODOO_COLAB_CHECKPOINTS_OUTPUT" not in env
 
 
 def test_run_training_reports_failure_exit_code(
@@ -106,12 +126,46 @@ def test_run_training_reports_failure_exit_code(
     experiment = store.load("EXP-0001")
     context = build_training_context(ws, experiment)
 
-    with patch("trainer.subprocess.run", return_value=type("R", (), {"returncode": 7})()):
+    class _FakeStdout:
+        def __iter__(self):
+            return iter([])
+
+    class _FakeProc:
+        stdout = _FakeStdout()
+
+        def wait(self, timeout: float | None = None) -> int:
+            _ = timeout
+            return 7
+
+        def kill(self) -> None:
+            return None
+
+    with patch("trainer.subprocess.Popen", return_value=_FakeProc()):
         result = run_training(context)
 
     assert result.success is False
     assert result.exit_code == 7
 
+
+def test_run_training_non_streaming_uses_subprocess_run(
+    prepared: tuple[Workspace, ExperimentStore],
+) -> None:
+    ws, store = prepared
+    _write_experiment(ws)
+    (ws.training_repository).mkdir(parents=True)
+    (ws.training_repository / "train.py").write_text("# fake\n", encoding="utf-8")
+    experiment = store.load("EXP-0001")
+    context = build_training_context(ws, experiment)
+
+    with patch(
+        "trainer.subprocess.run",
+        return_value=type("R", (), {"returncode": 0})(),
+    ) as run_mock:
+        result = run_training(context, stream_output=False)
+
+    assert result.success is True
+    run_mock.assert_called_once()
+    assert "-u" in run_mock.call_args.args[0]
 
 def test_run_training_missing_entrypoint(prepared: tuple[Workspace, ExperimentStore]) -> None:
     ws, store = prepared

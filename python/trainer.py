@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,9 @@ from workspace import Workspace
 logger = logging.getLogger("aiodoo_colab")
 
 _TRAIN_TIMEOUT_SECONDS: int = 60 * 60 * 24  # 24h safety cap for long Colab runs
+_WORKSPACE_ENV = "AIODOO_WORKSPACE_ROOT"
+
+LogLineCallback = Callable[[str], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,14 +111,21 @@ def _resolve_model_path(workspace: Workspace, experiment: Experiment) -> Path:
 
 
 def _output_paths(workspace: Workspace, experiment_id: str) -> dict[str, Path]:
-    adapters = workspace.models / MODELS_ADAPTERS_DIR_NAME / experiment_id
+    """
+    Canonical production layout (authority: aiodoo-training ArtifactOutputLayout).
+
+    Colab does not write artifacts directly — paths are informational and must
+    match the training contract for diagnostics and result metadata.
+    """
     return {
-        "adapter_output": adapters,
+        "adapter_output": workspace.models / MODELS_ADAPTERS_DIR_NAME / experiment_id,
         "merged_output": workspace.models / MODELS_MERGED_DIR_NAME / experiment_id,
         "export_output": workspace.models / MODELS_EXPORTS_DIR_NAME / experiment_id,
-        "logs_output": workspace.logs / experiment_id,
-        "checkpoints_output": adapters / "checkpoints",
-        "metrics_output": workspace.logs / experiment_id / "metrics",
+        "checkpoints_output": (
+            workspace.training / "cache" / experiment_id / "checkpoints"
+        ),
+        "metrics_output": workspace.experiments / experiment_id / "metrics",
+        "logs_output": workspace.experiments / experiment_id / "logs",
     }
 
 
@@ -174,30 +185,25 @@ def build_training_context(
     logger.info("  training_repository=%s", context.training_repository)
     logger.info("  training_config_path=%s", context.training_config_path)
     logger.info("  adapter_output=%s", context.adapter_output)
+    logger.info("  checkpoints_output=%s", context.checkpoints_output)
     logger.info("  logs_output=%s", context.logs_output)
     return context
 
 
-def _ensure_output_directories(context: TrainingContext) -> None:
-    """Create output directories under models/ and logs/ (experiments stay read-only)."""
-    for path in (
-        context.adapter_output,
-        context.merged_output,
-        context.export_output,
-        context.logs_output,
-        context.checkpoints_output,
-        context.metrics_output,
-    ):
-        path.mkdir(parents=True, exist_ok=True)
-
-
-def _invoke_aiodoo_training(context: TrainingContext) -> int:
+def _invoke_aiodoo_training(
+    context: TrainingContext,
+    *,
+    on_log_line: LogLineCallback | None = None,
+    stream_output: bool = True,
+) -> int:
     """
     Invoke the public aiodoo-training entrypoint ``train.py``.
 
-    Passes resolved workspace paths via ``AIODOO_COLAB_*`` environment hints
-    consumed by aiodoo-training's public orchestrator. Does not import private
-    ``aiodoo_training`` modules.
+    Sets ``AIODOO_WORKSPACE_ROOT`` and model/dataset paths. Training derives all
+    artifact destinations from the canonical Drive layout.
+
+    When ``stream_output`` is True (default), child stdout/stderr is streamed
+    line-by-line into the notebook (and optionally ``on_log_line``).
     """
     entry = context.training_repository / TRAINING_PUBLIC_ENTRYPOINT
     if not entry.is_file():
@@ -210,27 +216,32 @@ def _invoke_aiodoo_training(context: TrainingContext) -> int:
         raise LauncherError(f"Training config not found: {context.training_config_path}")
 
     env_hints: dict[str, str] = {
+        _WORKSPACE_ENV: str(context.workspace.root),
         "AIODOO_COLAB_MODEL_PATH": str(context.model_path),
         "AIODOO_COLAB_DATASET_PATH": str(context.dataset_path),
-        "AIODOO_COLAB_ADAPTER_OUTPUT": str(context.adapter_output),
-        "AIODOO_COLAB_LOGS_OUTPUT": str(context.logs_output),
-        "AIODOO_COLAB_CHECKPOINTS_OUTPUT": str(context.checkpoints_output),
-        "AIODOO_COLAB_METRICS_OUTPUT": str(context.metrics_output),
-        "AIODOO_COLAB_MERGED_OUTPUT": str(context.merged_output),
-        "AIODOO_COLAB_EXPORT_OUTPUT": str(context.export_output),
+        "PYTHONUNBUFFERED": "1",
     }
 
     command = [
         sys.executable,
+        "-u",
         str(entry),
         "--config",
         str(context.training_config_path),
     ]
     logger.info("Invoking aiodoo-training: %s", " ".join(command))
     logger.info("Working directory: %s", context.training_repository)
+    logger.info("%s=%s", _WORKSPACE_ENV, context.workspace.root)
 
     env = {**os.environ, **env_hints}
     try:
+        if stream_output:
+            return _stream_training_process(
+                command,
+                cwd=context.training_repository,
+                env=env,
+                on_log_line=on_log_line,
+            )
         completed = subprocess.run(
             command,
             cwd=context.training_repository,
@@ -238,20 +249,70 @@ def _invoke_aiodoo_training(context: TrainingContext) -> int:
             check=False,
             timeout=_TRAIN_TIMEOUT_SECONDS,
         )
+        return int(completed.returncode)
     except subprocess.TimeoutExpired as exc:
         raise LauncherError("aiodoo-training invocation timed out.") from exc
     except OSError as exc:
         raise LauncherError(f"Failed to invoke aiodoo-training: {exc}") from exc
 
-    return int(completed.returncode)
+
+def _stream_training_process(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    on_log_line: LogLineCallback | None,
+) -> int:
+    """Run train.py and stream combined stdout/stderr to the notebook live."""
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    assert process.stdout is not None
+    try:
+        for line in process.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            if on_log_line is not None:
+                try:
+                    on_log_line(line.rstrip("\n"))
+                except Exception:  # noqa: BLE001 — UI callbacks must not kill training
+                    logger.exception("on_log_line callback failed")
+        returncode = process.wait(timeout=_TRAIN_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as exc:
+        process.kill()
+        process.wait(timeout=60)
+        raise LauncherError("aiodoo-training invocation timed out.") from exc
+    except Exception:
+        process.kill()
+        process.wait(timeout=60)
+        raise
+    return int(returncode)
 
 
-def run_training(context: TrainingContext) -> TrainingResult:
+def run_training(
+    context: TrainingContext,
+    *,
+    on_log_line: LogLineCallback | None = None,
+    stream_output: bool = True,
+) -> TrainingResult:
     """
     Orchestrate one training run via aiodoo-training's public entrypoint.
 
-    Creates output directories under ``models/`` and ``logs/`` only.
-    Experiments remain read-only.
+    Does not create output directories preemptively — training creates paths on
+    first write. Experiments remain read-only.
+
+    Parameters
+    ----------
+    on_log_line:
+        Optional callback invoked for each streamed log line (for Colab UI).
+    stream_output:
+        When True, stream child process logs live into the notebook cell.
     """
     logger.info("Training start experiment=%s", context.experiment.experiment_id)
     logger.info(
@@ -261,10 +322,13 @@ def run_training(context: TrainingContext) -> TrainingResult:
         else "<unknown>",
     )
 
-    _ensure_output_directories(context)
     started = time.perf_counter()
     try:
-        exit_code = _invoke_aiodoo_training(context)
+        exit_code = _invoke_aiodoo_training(
+            context,
+            on_log_line=on_log_line,
+            stream_output=stream_output,
+        )
     except LauncherError as exc:
         duration = time.perf_counter() - started
         logger.error("Training finish (failed orchestration): %s", exc)

@@ -226,15 +226,25 @@ class ExperimentStore:
             if _config_dir_for_experiment_root(drive) is not None:
                 logger.info("Experiment validated (Drive): %s", experiment_id)
                 return drive
-            raise ExperimentValidationError(
-                f"Experiment {experiment_id!r} at {drive} is missing required "
-                f"config files ({', '.join(EXPERIMENT_CONFIG_FILES)})."
+            # Incomplete Drive output dirs (summary/config snapshot only) must not
+            # block loading canonical aiodoo-training production configs.
+            logger.warning(
+                "Drive experiment %s is missing required config files; "
+                "falling back to aiodoo-training production configs.",
+                experiment_id,
             )
 
         canonical = _canonical_production_experiment(self.workspace, experiment_id)
         if canonical is not None:
             logger.info("Experiment validated (aiodoo-training canonical): %s", experiment_id)
             return canonical
+
+        if drive.exists():
+            raise ExperimentValidationError(
+                f"Experiment {experiment_id!r} at {drive} is missing required "
+                f"config files ({', '.join(EXPERIMENT_CONFIG_FILES)}) and no "
+                "canonical aiodoo-training production configs were found."
+            )
 
         raise ExperimentNotFoundError(
             f"Experiment not found: {experiment_id} "

@@ -85,6 +85,43 @@ def test_validate_raises_when_config_missing(workspace: Workspace) -> None:
         store.validate("EXP-0003")
 
 
+def test_validate_falls_back_to_canonical_when_drive_incomplete(
+    workspace: Workspace,
+) -> None:
+    # Incomplete Drive output leftover from a prior training run.
+    drive = workspace.experiments / "EXP-0001"
+    (drive / "config").mkdir(parents=True)
+    (drive / "summary.json").write_text('{"success": true}\n', encoding="utf-8")
+
+    canonical = (
+        workspace.training_repository
+        / "configs"
+        / "experiments"
+        / "production"
+        / "EXP-0001"
+    )
+    _write_experiment(canonical.parent, "EXP-0001")
+    # _write_experiment creates config/ nested layout under parent/EXP-0001
+    # but production layout is flat — rewrite as flat canonical.
+    import shutil
+
+    shutil.rmtree(canonical)
+    canonical.mkdir(parents=True)
+    for name, body in (
+        ("dataset.yaml", "dataset_version: v1.0.0\n"),
+        ("model.yaml", "base_model: Qwen/Qwen3-8B\n"),
+        ("training.yaml", "epochs: 1\n"),
+        ("evaluation.yaml", "metrics: []\n"),
+        ("export.yaml", "merge_adapter: false\n"),
+    ):
+        (canonical / name).write_text(body, encoding="utf-8")
+
+    store = ExperimentStore(workspace=workspace)
+    root = store.validate("EXP-0001")
+    assert root == canonical
+    experiment = store.load("EXP-0001")
+    assert experiment.model_id == "Qwen/Qwen3-8B"
+
 def test_load_returns_typed_experiment(workspace: Workspace) -> None:
     _write_experiment(workspace.experiments, "EXP-0001")
     store = ExperimentStore(workspace=workspace)

@@ -130,24 +130,31 @@ Phase 6 provides `notebooks/01_train.ipynb` as a thin orchestration notebook.
 
 ### Google Drive (persistent) — `AIODOO/`
 
+Canonical layout authority: `aiodoo-training` `ArtifactOutputLayout`.
+Colab sets `AIODOO_WORKSPACE_ROOT`; training derives all artifact paths.
+
 ```text
 AIODOO/
 ├── datasets/
+├── training/
+│   ├── aiodoo-training/        # cloned source (not artifact storage)
+│   └── cache/
+│       └── EXP-0001/
+│           └── checkpoints/    # runtime checkpoints
 ├── models/
 │   ├── base/                   # layout placeholder (HF base models are NOT stored here)
 │   ├── adapters/
-│   │   └── EXP-0001/           # adapters + checkpoints/
+│   │   └── EXP-0001/           # published adapter + artifact.json
 │   ├── merged/
 │   │   └── EXP-0001/
 │   └── exports/
 │       └── EXP-0001/
 ├── experiments/                 # read-only during training
 │   └── EXP-0001/
-│       └── config/
-├── logs/
-│   └── EXP-0001/
-└── training/
-    └── aiodoo-training/
+│       ├── config/
+│       ├── metrics/
+│       └── logs/
+└── logs/                        # legacy; new runs use experiments/{EXP}/logs/
 ```
 
 ### Colab local SSD (temporary) — Hugging Face base models only
@@ -155,6 +162,7 @@ AIODOO/
 ```text
 /content/aiodoo-model-cache/
 └── Qwen__Qwen3-8B/             # HF id org/name → org__name
+    └── artifact.json           # written by training finalize (validation handoff)
 ```
 
 **Why local SSD for base models?**  
@@ -164,12 +172,20 @@ runtime session.
 
 **Why adapters / checkpoints stay on Drive?**  
 They are the durable training outputs that must survive runtime reconnects and
-be available across Colab sessions. `aiodoo-training` does not change: Colab
-still sets `AIODOO_COLAB_MODEL_PATH` to the resolved local model directory and
-points artifact overlays at Drive paths.
+be available across Colab sessions.
 
-**No changes required in `aiodoo-training`.** Path overlays continue to work
-exactly as before.
+**Colab → training contract**
+
+Colab sets:
+
+| Variable | Purpose |
+|----------|---------|
+| `AIODOO_WORKSPACE_ROOT` | **Required** — AIODOO Drive workspace root |
+| `AIODOO_COLAB_MODEL_PATH` | Local SSD base model directory |
+| `AIODOO_COLAB_DATASET_PATH` | Dataset version root |
+
+Training rewrites all output paths from `AIODOO_WORKSPACE_ROOT`. Legacy
+`AIODOO_COLAB_*_OUTPUT` path hints are not consumed.
 
 **Runtime behavior**
 
@@ -197,11 +213,27 @@ build TrainingContext
   (prefers configs/experiments/production/<EXP>/experiment.yaml)
         ↓
 subprocess: python3 train.py --config …
-  + AIODOO_COLAB_* path overlays
-  (AIODOO_COLAB_MODEL_PATH → local SSD model dir; artifacts → Drive)
+  + AIODOO_WORKSPACE_ROOT (required)
+  + AIODOO_COLAB_MODEL_PATH → local SSD model dir
+  + AIODOO_COLAB_DATASET_PATH → dataset version root
         ↓
 TrainingResult (execution metadata only)
 ```
+
+Live Colab UI (optional):
+
+```python
+from training_ui import TrainingMonitor
+
+monitor = TrainingMonitor(experiment_id="EXP-0001")
+monitor.display()
+result = run_training(context, on_log_line=monitor.on_line)  # streams logs + widgets
+monitor.finish(result)
+```
+
+`run_training` streams `train.py` stdout/stderr into the notebook by default
+(`stream_output=True`, `PYTHONUNBUFFERED=1`).
+
 Canonical production experiment: **EXP-0001** in aiodoo-training  
 (`configs/experiments/production/EXP-0001/`).
 
