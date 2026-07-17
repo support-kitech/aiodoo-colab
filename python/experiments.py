@@ -1,31 +1,36 @@
-"""Experiment discovery and configuration loading (no training logic)."""
+"""Training discovery and configuration loading (no training logic)."""
 
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from constants import EXPERIMENT_CONFIG_DIR_NAME, EXPERIMENT_CONFIG_FILES, EXPERIMENT_ID_PATTERN
+from constants import EXPERIMENT_CONFIG_DIR_NAME, EXPERIMENT_CONFIG_FILES, TRAINING_ID_PATTERN
 from exceptions import ExperimentNotFoundError, ExperimentValidationError
+from naming import (
+    LEGACY_EXPERIMENT_CONFIG_ROOT,
+    LEGACY_INTERNAL_ID_TO_TRAINING_ID,
+    TRAINING_CONFIG_ROOT,
+    TRAINING_ID_TO_INTERNAL_ID,
+    is_acceptable_training_ref,
+    normalize_training_id,
+)
 from workspace import Workspace
 
 logger = logging.getLogger("aiodoo_colab")
 
-_EXPERIMENT_ID_RE = re.compile(EXPERIMENT_ID_PATTERN)
-
 
 def is_valid_experiment_id(experiment_id: str) -> bool:
-    """Return True when ``experiment_id`` matches ``EXP-0001`` style naming."""
-    return _EXPERIMENT_ID_RE.fullmatch(experiment_id) is not None
+    """Return True for semantic training ids or known legacy EXP refs."""
+    return is_acceptable_training_ref(experiment_id)
 
 
 def require_valid_experiment_id(experiment_id: str) -> None:
     if not is_valid_experiment_id(experiment_id):
         raise ExperimentValidationError(
-            f"Invalid experiment id {experiment_id!r}; expected pattern {EXPERIMENT_ID_PATTERN}"
+            f"Invalid training id {experiment_id!r}; expected pattern {TRAINING_ID_PATTERN}"
         )
 
 
@@ -66,7 +71,7 @@ class ExportConfig:
 
 @dataclass(frozen=True, slots=True)
 class ExperimentConfigs:
-    """All typed config fragments for one experiment."""
+    """All typed config fragments for one training product."""
 
     dataset: DatasetConfig
     model: ModelConfig
@@ -77,12 +82,17 @@ class ExperimentConfigs:
 
 @dataclass(frozen=True, slots=True)
 class Experiment:
-    """Resolved experiment with paths and loaded configuration."""
+    """Resolved training configuration with paths and loaded YAML fragments."""
 
     experiment_id: str
     root: Path
     config_dir: Path
     configs: ExperimentConfigs
+
+    @property
+    def training_id(self) -> str:
+        """Public semantic training id (alias of ``experiment_id``)."""
+        return self.experiment_id
 
     @property
     def dataset_version(self) -> Any:
@@ -161,102 +171,151 @@ def _config_dir_for_experiment_root(root: Path) -> Path | None:
     return None
 
 
-def _canonical_production_experiment(workspace: Workspace, experiment_id: str) -> Path | None:
-    """Resolve EXP from cloned aiodoo-training production configs when present."""
-    candidate = (
-        workspace.training_repository / "configs" / "experiments" / "production" / experiment_id
-    )
+def _canonical_training_config(workspace: Workspace, training_id: str) -> Path | None:
+    """Resolve ``configs/training/<id>/`` from the cloned aiodoo-training repo."""
+    candidate = workspace.training_repository / TRAINING_CONFIG_ROOT / training_id
     if candidate.is_dir() and _config_dir_for_experiment_root(candidate) is not None:
         return candidate
     return None
 
 
+def _legacy_production_experiment(workspace: Workspace, training_id: str) -> Path | None:
+    """Optional legacy ``configs/experiments/production/<EXP>/`` lookup."""
+    legacy_keys: set[str] = {training_id}
+    internal = TRAINING_ID_TO_INTERNAL_ID.get(training_id)
+    if internal:
+        legacy_keys.add(internal)
+    for key, tid in LEGACY_INTERNAL_ID_TO_TRAINING_ID.items():
+        if tid == training_id:
+            legacy_keys.add(key)
+    for key in legacy_keys:
+        candidate = workspace.training_repository / LEGACY_EXPERIMENT_CONFIG_ROOT / key
+        if candidate.is_dir() and _config_dir_for_experiment_root(candidate) is not None:
+            return candidate
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class ExperimentStore:
-    """Discover and load experiments under ``workspace.experiments``."""
+    """Discover and load training configs under Drive + aiodoo-training."""
 
     workspace: Workspace
 
     def discover(self) -> list[str]:
-        """Return sorted experiment ids from Drive and canonical training configs."""
+        """Return sorted public training ids from Drive and canonical configs."""
         names: set[str] = set()
         root = self.workspace.experiments
         if root.is_dir():
             for entry in root.iterdir():
-                if entry.is_dir() and is_valid_experiment_id(entry.name):
-                    names.add(entry.name)
+                if entry.is_dir() and is_acceptable_training_ref(entry.name):
+                    names.add(normalize_training_id(entry.name))
                 elif entry.is_dir():
-                    logger.info("Ignoring invalid experiment directory name: %s", entry.name)
+                    logger.info("Ignoring invalid training directory name: %s", entry.name)
 
-        production = self.workspace.training_repository / "configs" / "experiments" / "production"
+        training_root = workspace_training_configs(self.workspace)
+        if training_root.is_dir():
+            for entry in training_root.iterdir():
+                if (
+                    entry.is_dir()
+                    and is_acceptable_training_ref(entry.name)
+                    and _config_dir_for_experiment_root(entry) is not None
+                ):
+                    names.add(normalize_training_id(entry.name))
+
+        # Legacy production tree: map EXP-* → semantic ids when still present.
+        production = self.workspace.training_repository / LEGACY_EXPERIMENT_CONFIG_ROOT
         if production.is_dir():
             for entry in production.iterdir():
                 if (
                     entry.is_dir()
-                    and is_valid_experiment_id(entry.name)
+                    and is_acceptable_training_ref(entry.name)
                     and _config_dir_for_experiment_root(entry) is not None
                 ):
-                    names.add(entry.name)
+                    names.add(normalize_training_id(entry.name))
 
         ordered = sorted(names)
-        logger.info("Discovered %d experiment(s)", len(ordered))
+        logger.info("Discovered %d training config(s)", len(ordered))
         return ordered
 
     def exists(self, experiment_id: str) -> bool:
         if not is_valid_experiment_id(experiment_id):
             return False
-        drive = self.workspace.experiments / experiment_id
+        training_id = normalize_training_id(experiment_id)
+        drive = self.workspace.experiments / training_id
         if drive.is_dir() and _config_dir_for_experiment_root(drive) is not None:
             return True
-        return _canonical_production_experiment(self.workspace, experiment_id) is not None
+        # Incomplete Drive dirs named with legacy EXP still count via fallback.
+        legacy_drive = self.workspace.experiments / experiment_id
+        if (
+            legacy_drive.is_dir()
+            and legacy_drive != drive
+            and _config_dir_for_experiment_root(legacy_drive) is not None
+        ):
+            return True
+        if _canonical_training_config(self.workspace, training_id) is not None:
+            return True
+        return _legacy_production_experiment(self.workspace, training_id) is not None
 
     def validate(self, experiment_id: str) -> Path:
         """
-        Validate experiment and return its root path.
+        Validate training config and return its root path.
 
         Preference order:
-        1. Drive ``experiments/EXP-NNNN`` (config/ or flat layout)
-        2. Canonical ``aiodoo-training/configs/experiments/production/EXP-NNNN``
+        1. Drive ``experiments/<training_id>`` (config/ or flat layout)
+        2. Canonical ``aiodoo-training/configs/training/<training_id>``
+        3. Legacy ``aiodoo-training/configs/experiments/production/<EXP>``
         """
         require_valid_experiment_id(experiment_id)
-        drive = self.workspace.experiments / experiment_id
-        if drive.exists():
-            if not drive.is_dir():
-                raise ExperimentValidationError(f"Experiment path is not a directory: {drive}")
-            if _config_dir_for_experiment_root(drive) is not None:
-                logger.info("Experiment validated (Drive): %s", experiment_id)
-                return drive
-            # Incomplete Drive output dirs (summary/config snapshot only) must not
-            # block loading canonical aiodoo-training production configs.
-            logger.warning(
-                "Drive experiment %s is missing required config files; "
-                "falling back to aiodoo-training production configs.",
-                experiment_id,
-            )
+        training_id = normalize_training_id(experiment_id)
 
-        canonical = _canonical_production_experiment(self.workspace, experiment_id)
+        for drive in (
+            self.workspace.experiments / training_id,
+            self.workspace.experiments / experiment_id,
+        ):
+            if drive.exists():
+                if not drive.is_dir():
+                    raise ExperimentValidationError(
+                        f"Training path is not a directory: {drive}"
+                    )
+                if _config_dir_for_experiment_root(drive) is not None:
+                    logger.info("Training validated (Drive): %s", training_id)
+                    return drive
+                logger.warning(
+                    "Drive training dir %s is missing required config files; "
+                    "falling back to aiodoo-training configs.",
+                    drive.name,
+                )
+
+        canonical = _canonical_training_config(self.workspace, training_id)
         if canonical is not None:
-            logger.info("Experiment validated (aiodoo-training canonical): %s", experiment_id)
+            logger.info("Training validated (aiodoo-training canonical): %s", training_id)
             return canonical
 
+        legacy = _legacy_production_experiment(self.workspace, training_id)
+        if legacy is not None:
+            logger.info("Training validated (legacy production path): %s", training_id)
+            return legacy
+
+        drive = self.workspace.experiments / training_id
         if drive.exists():
             raise ExperimentValidationError(
-                f"Experiment {experiment_id!r} at {drive} is missing required "
+                f"Training {training_id!r} at {drive} is missing required "
                 f"config files ({', '.join(EXPERIMENT_CONFIG_FILES)}) and no "
-                "canonical aiodoo-training production configs were found."
+                "canonical aiodoo-training configs were found."
             )
 
         raise ExperimentNotFoundError(
-            f"Experiment not found: {experiment_id} "
-            f"(checked Drive {drive} and aiodoo-training production configs)."
+            f"Training not found: {training_id} "
+            f"(checked Drive {drive} and aiodoo-training {TRAINING_CONFIG_ROOT}/)."
         )
 
     def load(self, experiment_id: str) -> Experiment:
         """Validate and load all YAML configuration fragments."""
+        training_id = normalize_training_id(experiment_id)
         root = self.validate(experiment_id)
         config_dir = _config_dir_for_experiment_root(root)
         if config_dir is None:
-            raise ExperimentValidationError(f"Experiment configs missing under {root}")
+            raise ExperimentValidationError(f"Training configs missing under {root}")
 
         dataset = DatasetConfig(data=_load_yaml(config_dir / "dataset.yaml"))
         model = ModelConfig(data=_load_yaml(config_dir / "model.yaml"))
@@ -265,7 +324,7 @@ class ExperimentStore:
         export = ExportConfig(data=_load_yaml(config_dir / "export.yaml"))
 
         experiment = Experiment(
-            experiment_id=experiment_id,
+            experiment_id=training_id,
             root=root,
             config_dir=config_dir,
             configs=ExperimentConfigs(
@@ -276,8 +335,12 @@ class ExperimentStore:
                 export=export,
             ),
         )
-        logger.info("Experiment loaded: %s (root=%s)", experiment_id, root)
+        logger.info("Training loaded: %s (root=%s)", training_id, root)
         return experiment
+
+
+def workspace_training_configs(workspace: Workspace) -> Path:
+    return workspace.training_repository / TRAINING_CONFIG_ROOT
 
 
 __all__ = [

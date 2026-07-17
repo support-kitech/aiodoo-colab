@@ -116,7 +116,7 @@ Phase 3 ensures Hugging Face base models under the Colab local SSD cache
 ``/content/aiodoo-model-cache/<org>__<name>/`` (collision-safe; model id from
 experiment). Training artifacts remain on Google Drive.
 
-Phase 4 discovers / loads `EXP-NNNN` experiments and YAML configs (no training
+Phase 4 discovers / loads semantic training ids (`coding`, …) and YAML configs (no training
 interpretation).
 
 Phase 5 builds a `TrainingContext` and invokes the public
@@ -139,22 +139,22 @@ AIODOO/
 ├── training/
 │   ├── aiodoo-training/        # cloned source (not artifact storage)
 │   └── cache/
-│       └── EXP-0001/
+│       └── coding/
 │           └── checkpoints/    # runtime checkpoints
 ├── models/
 │   ├── base/                   # layout placeholder (HF base models are NOT stored here)
 │   ├── adapters/
-│   │   └── EXP-0001/           # published adapter + artifact.json
+│   │   └── aiodoo-coding/    # published adapter + artifact.json
 │   ├── merged/
-│   │   └── EXP-0001/
+│   │   └── aiodoo-coding/
 │   └── exports/
-│       └── EXP-0001/
+│       └── aiodoo-coding/
 ├── experiments/                 # read-only during training
-│   └── EXP-0001/
+│   └── coding/
 │       ├── config/
 │       ├── metrics/
 │       └── logs/
-└── logs/                        # legacy; new runs use experiments/{EXP}/logs/
+└── logs/                        # legacy; new runs use experiments/{training_id}/logs/
 ```
 
 ### Colab local SSD (temporary) — Hugging Face base models only
@@ -204,13 +204,13 @@ prepare workspace
         ↓
 ensure aiodoo-training
         ↓
-load EXP-NNNN
-  (Drive experiments/ OR aiodoo-training production configs)
+load training id (e.g. coding)
+  (Drive experiments/ OR aiodoo-training configs/training/<id>)
         ↓
 ensure model (/content/aiodoo-model-cache/<org>__<name>)
         ↓
 build TrainingContext
-  (prefers configs/experiments/production/<EXP>/experiment.yaml)
+  (prefers configs/training/<training_id>/experiment.yaml)
         ↓
 subprocess: python3 train.py --config …
   + AIODOO_WORKSPACE_ROOT (required)
@@ -225,7 +225,7 @@ Live Colab UI (optional):
 ```python
 from training_ui import TrainingMonitor
 
-monitor = TrainingMonitor(experiment_id="EXP-0001")
+monitor = TrainingMonitor(training_id="coding")
 monitor.display()
 result = run_training(context, on_log_line=monitor.on_line)  # streams logs + widgets
 monitor.finish(result)
@@ -234,8 +234,8 @@ monitor.finish(result)
 `run_training` streams `train.py` stdout/stderr into the notebook by default
 (`stream_output=True`, `PYTHONUNBUFFERED=1`).
 
-Canonical production experiment: **EXP-0001** in aiodoo-training  
-(`configs/experiments/production/EXP-0001/`).
+Canonical production training: **coding** in aiodoo-training  
+(`configs/training/coding/`).
 
 ---
 

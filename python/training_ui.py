@@ -75,13 +75,18 @@ class TrainingMonitor:
 
     Usage::
 
-        monitor = TrainingMonitor(experiment_id=\"EXP-0001\")
+        monitor = TrainingMonitor(training_id=\"coding\")
         monitor.display()
         result = run_training(context, on_log_line=monitor.on_line)
         monitor.finish(result)
     """
 
-    experiment_id: str
+    training_id: str = ""
+    experiment_id: str = ""  # deprecated alias; prefer training_id
+    model_name: str = ""
+    dataset_version: str = ""
+    stage: str = ""
+    run_id: str = ""
     max_log_lines: int = 40
     _started: float = field(default=0.0, init=False, repr=False)
     _log_lines: list[str] = field(default_factory=list, init=False, repr=False)
@@ -90,6 +95,25 @@ class TrainingMonitor:
     _last_epoch: float | None = field(default=None, init=False, repr=False)
     _last_step: int | None = field(default=None, init=False, repr=False)
     _total_steps: int | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.training_id and not self.experiment_id:
+            self.experiment_id = self.training_id
+        elif self.experiment_id and not self.training_id:
+            self.training_id = self.experiment_id
+        if not self.training_id:
+            raise ValueError("TrainingMonitor requires training_id (or legacy experiment_id)")
+        # Never show legacy EXP-* in the notebook UI; normalize when known.
+        try:
+            from naming import is_acceptable_training_ref, normalize_training_id
+
+            if is_acceptable_training_ref(self.training_id):
+                self.training_id = normalize_training_id(self.training_id)
+                self.experiment_id = self.training_id
+        except ImportError:  # pragma: no cover - Colab always has python/ on path
+            pass
+        if not self.stage:
+            self.stage = self.training_id.replace("_", " ").title()
 
     def display(self) -> None:
         """Render widgets into the current notebook output cell."""
@@ -102,17 +126,28 @@ class TrainingMonitor:
                 "Fall back to run_training(...) without the monitor."
             ) from exc
 
+        run_line = f"Run : {self.run_id}" if self.run_id else "Run : (pending)"
+        model_line = f"Model : {self.model_name}" if self.model_name else "Model : —"
+        dataset_line = (
+            f"Dataset : {self.dataset_version}" if self.dataset_version else "Dataset : —"
+        )
         title = widgets.HTML(
             value=(
-                f"<h3 style='margin:0 0 8px 0;font-family:system-ui,sans-serif'>"
-                f"Training · {self.experiment_id}</h3>"
+                "<pre style='margin:0 0 8px 0;font-family:ui-monospace,monospace;"
+                "font-size:13px;line-height:1.45'>"
+                f"Training : {self.training_id}\n"
+                f"{run_line}\n"
+                f"{model_line}\n"
+                f"{dataset_line}\n"
+                f"Stage : {self.stage}"
+                "</pre>"
             )
         )
         status = widgets.HTML(
             value="<b>Status:</b> starting…"
         )
         metrics = widgets.HTML(
-            value="<b>Loss:</b> — &nbsp; <b>Epoch:</b> — &nbsp; <b>Step:</b> —"
+            value="<b>Progress:</b> — &nbsp; <b>Loss:</b> — &nbsp; <b>ETA:</b> —"
         )
         bar = widgets.FloatProgress(
             value=0.0,
@@ -232,15 +267,29 @@ class TrainingMonitor:
         if self._widgets is None:
             return
         loss = f"{self._last_loss:.4f}" if self._last_loss is not None else "—"
-        epoch = f"{self._last_epoch:.3f}" if self._last_epoch is not None else "—"
         if self._last_step is not None and self._total_steps is not None:
-            step = f"{self._last_step}/{self._total_steps}"
+            progress = f"{self._last_step} / {self._total_steps}"
+            remaining = None
+            elapsed = time.perf_counter() - self._started if self._started else 0.0
+            if self._last_step > 0 and elapsed > 0:
+                rate = elapsed / self._last_step
+                remaining = rate * (self._total_steps - self._last_step)
         elif self._last_step is not None:
-            step = str(self._last_step)
+            progress = str(self._last_step)
+            remaining = None
         else:
-            step = "—"
+            progress = "—"
+            remaining = None
+
+        if remaining is None:
+            eta = "—"
+        else:
+            mins, secs = divmod(int(remaining), 60)
+            hours, mins = divmod(mins, 60)
+            eta = f"{hours:02d}:{mins:02d}:{secs:02d}"
+
         self._widgets["metrics"].value = (
-            f"<b>Loss:</b> {loss} &nbsp; <b>Epoch:</b> {epoch} &nbsp; <b>Step:</b> {step}"
+            f"<b>Progress:</b> {progress} &nbsp; <b>Loss:</b> {loss} &nbsp; <b>ETA:</b> {eta}"
         )
 
     def _refresh_elapsed(self) -> None:

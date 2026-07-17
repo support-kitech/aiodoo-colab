@@ -1,4 +1,4 @@
-"""Unit tests for experiment discovery and YAML loading (no training)."""
+"""Unit tests for training discovery and YAML loading (no training)."""
 
 from __future__ import annotations
 
@@ -50,62 +50,52 @@ def _write_experiment(root: Path, experiment_id: str) -> Path:
 
 
 def test_discover_returns_sorted_ids(workspace: Workspace) -> None:
-    _write_experiment(workspace.experiments, "EXP-0002")
-    _write_experiment(workspace.experiments, "EXP-0001")
+    _write_experiment(workspace.experiments, "planner")
+    _write_experiment(workspace.experiments, "coding")
     _write_experiment(workspace.experiments, "scratch-run")
     store = ExperimentStore(workspace=workspace)
-    assert store.discover() == ["EXP-0001", "EXP-0002"]
+    assert store.discover() == ["coding", "planner"]
 
 
 def test_exists(workspace: Workspace) -> None:
     store = ExperimentStore(workspace=workspace)
-    assert store.exists("EXP-0001") is False
+    assert store.exists("coding") is False
     assert store.exists("bad-name") is False
-    _write_experiment(workspace.experiments, "EXP-0001")
+    _write_experiment(workspace.experiments, "coding")
+    assert store.exists("coding") is True
+    # Legacy EXP id still resolves when Drive has the semantic folder.
     assert store.exists("EXP-0001") is True
 
 
 def test_validate_raises_not_found(workspace: Workspace) -> None:
     store = ExperimentStore(workspace=workspace)
     with pytest.raises(ExperimentNotFoundError):
-        store.validate("EXP-9999")
+        store.validate("planner")
 
 
 def test_validate_rejects_invalid_id(workspace: Workspace) -> None:
     store = ExperimentStore(workspace=workspace)
-    with pytest.raises(ExperimentValidationError, match="Invalid experiment id"):
+    with pytest.raises(ExperimentValidationError, match="Invalid training id"):
         store.validate("EXP-BAD")
 
 
 def test_validate_raises_when_config_missing(workspace: Workspace) -> None:
-    exp = workspace.experiments / "EXP-0003"
+    exp = workspace.experiments / "context"
     (exp / "config").mkdir(parents=True)
     store = ExperimentStore(workspace=workspace)
     with pytest.raises(ExperimentValidationError, match="dataset.yaml"):
-        store.validate("EXP-0003")
+        store.validate("context")
 
 
 def test_validate_falls_back_to_canonical_when_drive_incomplete(
     workspace: Workspace,
 ) -> None:
     # Incomplete Drive output leftover from a prior training run.
-    drive = workspace.experiments / "EXP-0001"
+    drive = workspace.experiments / "coding"
     (drive / "config").mkdir(parents=True)
     (drive / "summary.json").write_text('{"success": true}\n', encoding="utf-8")
 
-    canonical = (
-        workspace.training_repository
-        / "configs"
-        / "experiments"
-        / "production"
-        / "EXP-0001"
-    )
-    _write_experiment(canonical.parent, "EXP-0001")
-    # _write_experiment creates config/ nested layout under parent/EXP-0001
-    # but production layout is flat — rewrite as flat canonical.
-    import shutil
-
-    shutil.rmtree(canonical)
+    canonical = workspace.training_repository / "configs" / "training" / "coding"
     canonical.mkdir(parents=True)
     for name, body in (
         ("dataset.yaml", "dataset_version: v1.0.0\n"),
@@ -117,17 +107,20 @@ def test_validate_falls_back_to_canonical_when_drive_incomplete(
         (canonical / name).write_text(body, encoding="utf-8")
 
     store = ExperimentStore(workspace=workspace)
-    root = store.validate("EXP-0001")
+    root = store.validate("coding")
     assert root == canonical
-    experiment = store.load("EXP-0001")
+    experiment = store.load("EXP-0001")  # legacy ref normalizes
+    assert experiment.experiment_id == "coding"
     assert experiment.model_id == "Qwen/Qwen3-8B"
 
-def test_load_returns_typed_experiment(workspace: Workspace) -> None:
-    _write_experiment(workspace.experiments, "EXP-0001")
-    store = ExperimentStore(workspace=workspace)
-    experiment = store.load("EXP-0001")
 
-    assert experiment.experiment_id == "EXP-0001"
+def test_load_returns_typed_experiment(workspace: Workspace) -> None:
+    _write_experiment(workspace.experiments, "coding")
+    store = ExperimentStore(workspace=workspace)
+    experiment = store.load("coding")
+
+    assert experiment.experiment_id == "coding"
+    assert experiment.training_id == "coding"
     assert experiment.dataset_version == "v1.0.0"
     assert experiment.model_id == "org/Example-7B"
     assert experiment.training_configuration["epochs"] == 3
@@ -137,21 +130,21 @@ def test_load_returns_typed_experiment(workspace: Workspace) -> None:
 
 
 def test_model_id_resolves_nested_identifier(workspace: Workspace) -> None:
-    """EXP model.yaml nests identity under ``model.identifier`` (training schema)."""
-    _write_experiment(workspace.experiments, "EXP-0001")
-    model_yaml = workspace.experiments / "EXP-0001" / "config" / "model.yaml"
+    """model.yaml nests identity under ``model.identifier`` (training schema)."""
+    _write_experiment(workspace.experiments, "coding")
+    model_yaml = workspace.experiments / "coding" / "config" / "model.yaml"
     model_yaml.write_text(
         "model:\n  identifier: Qwen/Qwen3-8B\n  family: qwen\n",
         encoding="utf-8",
     )
     store = ExperimentStore(workspace=workspace)
-    experiment = store.load("EXP-0001")
+    experiment = store.load("coding")
     assert experiment.model_id == "Qwen/Qwen3-8B"
 
 
 def test_load_invalid_yaml_raises(workspace: Workspace) -> None:
-    exp = _write_experiment(workspace.experiments, "EXP-0099")
+    exp = _write_experiment(workspace.experiments, "repair")
     (exp / "config" / "model.yaml").write_text(": not: valid: yaml: [[\n", encoding="utf-8")
     store = ExperimentStore(workspace=workspace)
     with pytest.raises(ExperimentValidationError, match="Invalid YAML"):
-        store.load("EXP-0099")
+        store.load("repair")

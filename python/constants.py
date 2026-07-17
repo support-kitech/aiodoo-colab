@@ -100,8 +100,14 @@ EXPERIMENT_CONFIG_FILES: tuple[str, ...] = (
     "export.yaml",
 )
 
-# Accepted experiment directory names: EXP-0001, EXP-0002, …
-EXPERIMENT_ID_PATTERN: str = r"^EXP-\d{4}$"
+# Accepted public training ids (semantic) plus legacy EXP-NNNN for migration.
+# Prefer TRAINING_ID_PATTERN from naming.py for validation.
+EXPERIMENT_ID_PATTERN: str = (
+    r"^(?:coding|planner|context|conversation|repair|execution|approval|evaluation|"
+    r"EXP-\d{4})$"
+)
+# Alias — public surface uses training ids.
+TRAINING_ID_PATTERN: str = EXPERIMENT_ID_PATTERN
 
 # Public root entrypoint inside aiodoo-training (application layout).
 TRAINING_PUBLIC_ENTRYPOINT: str = "train.py"
@@ -121,6 +127,7 @@ __all__ = [
     "EXPERIMENT_CONFIG_DIR_NAME",
     "EXPERIMENT_CONFIG_FILES",
     "EXPERIMENT_ID_PATTERN",
+    "TRAINING_ID_PATTERN",
     "MODELS_ADAPTERS_DIR_NAME",
     "MODELS_BASE_DIR_NAME",
     "MODELS_DIR_NAME",

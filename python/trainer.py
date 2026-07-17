@@ -21,6 +21,7 @@ from constants import (
 from exceptions import LauncherError
 from experiments import Experiment
 from models import ModelStore, deterministic_model_dirname
+from naming import TRAINING_CONFIG_ROOT, adapter_product_id, normalize_training_id
 from workspace import Workspace
 
 logger = logging.getLogger("aiodoo_colab")
@@ -117,33 +118,34 @@ def _output_paths(workspace: Workspace, experiment_id: str) -> dict[str, Path]:
     Colab does not write artifacts directly — paths are informational and must
     match the training contract for diagnostics and result metadata.
     """
+    training_id = normalize_training_id(experiment_id)
+    adapter_id = adapter_product_id(training_id)
     return {
-        "adapter_output": workspace.models / MODELS_ADAPTERS_DIR_NAME / experiment_id,
-        "merged_output": workspace.models / MODELS_MERGED_DIR_NAME / experiment_id,
-        "export_output": workspace.models / MODELS_EXPORTS_DIR_NAME / experiment_id,
+        "adapter_output": workspace.models / MODELS_ADAPTERS_DIR_NAME / adapter_id,
+        "merged_output": workspace.models / MODELS_MERGED_DIR_NAME / adapter_id,
+        "export_output": workspace.models / MODELS_EXPORTS_DIR_NAME / adapter_id,
         "checkpoints_output": (
-            workspace.training / "cache" / experiment_id / "checkpoints"
+            workspace.training / "cache" / training_id / "checkpoints"
         ),
-        "metrics_output": workspace.experiments / experiment_id / "metrics",
-        "logs_output": workspace.experiments / experiment_id / "logs",
+        "metrics_output": workspace.experiments / training_id / "metrics",
+        "logs_output": workspace.experiments / training_id / "logs",
     }
 
 
 def _resolve_training_config_path(workspace: Workspace, experiment: Experiment) -> Path:
     """
-    Prefer canonical aiodoo-training production experiment.yaml when present.
+    Prefer canonical aiodoo-training ``configs/training/<id>/experiment.yaml``.
 
     Fallback order:
-    1. ``training/.../configs/experiments/production/<EXP>/experiment.yaml``
-    2. Drive ``experiments/<EXP>/experiment.yaml``
-    3. Drive ``experiments/<EXP>/config/training.yaml``
+    1. ``training/.../configs/training/<training_id>/experiment.yaml``
+    2. Drive ``experiments/<id>/experiment.yaml``
+    3. Drive ``experiments/<id>/config/training.yaml``
     """
+    training_id = normalize_training_id(experiment.experiment_id)
     canonical = (
         workspace.training_repository
-        / "configs"
-        / "experiments"
-        / "production"
-        / experiment.experiment_id
+        / TRAINING_CONFIG_ROOT
+        / training_id
         / "experiment.yaml"
     )
     if canonical.is_file():

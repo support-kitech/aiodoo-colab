@@ -33,7 +33,7 @@ def prepared(tmp_path: Path) -> tuple[Workspace, ExperimentStore]:
     return ws, ExperimentStore(workspace=ws)
 
 
-def _write_experiment(ws: Workspace, experiment_id: str = "EXP-0001") -> Path:
+def _write_experiment(ws: Workspace, experiment_id: str = "coding") -> Path:
     exp = ws.experiments / experiment_id
     config_dir = exp / "config"
     config_dir.mkdir(parents=True)
@@ -59,15 +59,15 @@ def _write_experiment(ws: Workspace, experiment_id: str = "EXP-0001") -> Path:
 def test_build_training_context_resolves_paths(prepared: tuple[Workspace, ExperimentStore]) -> None:
     ws, store = prepared
     _write_experiment(ws)
-    experiment = store.load("EXP-0001")
+    experiment = store.load("coding")
     context = build_training_context(ws, experiment)
 
     assert context.model_path == ws.model_cache / "Qwen__Qwen3-8B"
     assert context.dataset_path == ws.datasets / "v1.0.0"
-    assert context.adapter_output == ws.models / "adapters" / "EXP-0001"
-    assert context.checkpoints_output == ws.training / "cache" / "EXP-0001" / "checkpoints"
-    assert context.metrics_output == ws.experiments / "EXP-0001" / "metrics"
-    assert context.logs_output == ws.experiments / "EXP-0001" / "logs"
+    assert context.adapter_output == ws.models / "adapters" / "aiodoo-coding"
+    assert context.checkpoints_output == ws.training / "cache" / "coding" / "checkpoints"
+    assert context.metrics_output == ws.experiments / "coding" / "metrics"
+    assert context.logs_output == ws.experiments / "coding" / "logs"
     assert context.training_repository == ws.training_repository
     assert context.training_config_path.name == "training.yaml"
 
@@ -80,7 +80,7 @@ def test_run_training_invokes_public_entrypoint(
     (ws.training_repository).mkdir(parents=True)
     (ws.training_repository / "train.py").write_text("# fake\n", encoding="utf-8")
 
-    experiment = store.load("EXP-0001")
+    experiment = store.load("coding")
     context = build_training_context(ws, experiment)
 
     class _FakeStdout:
@@ -123,7 +123,7 @@ def test_run_training_reports_failure_exit_code(
     _write_experiment(ws)
     (ws.training_repository).mkdir(parents=True)
     (ws.training_repository / "train.py").write_text("# fake\n", encoding="utf-8")
-    experiment = store.load("EXP-0001")
+    experiment = store.load("coding")
     context = build_training_context(ws, experiment)
 
     class _FakeStdout:
@@ -154,7 +154,7 @@ def test_run_training_non_streaming_uses_subprocess_run(
     _write_experiment(ws)
     (ws.training_repository).mkdir(parents=True)
     (ws.training_repository / "train.py").write_text("# fake\n", encoding="utf-8")
-    experiment = store.load("EXP-0001")
+    experiment = store.load("coding")
     context = build_training_context(ws, experiment)
 
     with patch(
@@ -171,7 +171,7 @@ def test_run_training_missing_entrypoint(prepared: tuple[Workspace, ExperimentSt
     ws, store = prepared
     _write_experiment(ws)
     ws.training_repository.mkdir(parents=True)
-    experiment = store.load("EXP-0001")
+    experiment = store.load("coding")
     context = build_training_context(ws, experiment)
     result = run_training(context)
     assert result.success is False
@@ -196,7 +196,7 @@ def test_summarize_result() -> None:
 
 def test_missing_model_id_raises(prepared: tuple[Workspace, ExperimentStore]) -> None:
     ws, store = prepared
-    exp = ws.experiments / "EXP-0001"
+    exp = ws.experiments / "coding"
     config_dir = exp / "config"
     config_dir.mkdir(parents=True)
     (config_dir / "dataset.yaml").write_text("dataset_version: v1\n", encoding="utf-8")
@@ -206,7 +206,7 @@ def test_missing_model_id_raises(prepared: tuple[Workspace, ExperimentStore]) ->
     (config_dir / "export.yaml").write_text("{}\n", encoding="utf-8")
     (ws.datasets / "v1").mkdir(parents=True)
 
-    experiment = store.load("EXP-0001")
+    experiment = store.load("coding")
     with pytest.raises(LauncherError, match="no model id"):
         build_training_context(ws, experiment)
 
@@ -217,5 +217,5 @@ def test_invalid_experiment_rejected_on_validate(
     ws, store = prepared
     bad = ws.experiments / "not-an-exp"
     (bad / "config").mkdir(parents=True)
-    with pytest.raises(ExperimentValidationError, match="Invalid experiment id"):
+    with pytest.raises(ExperimentValidationError, match="Invalid training id"):
         store.validate("not-an-exp")
