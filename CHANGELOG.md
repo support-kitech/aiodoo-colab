@@ -9,3 +9,7 @@
 
 ### Fixed
 - Ruff E501 / UP035
+
+### Completion residuals (Batch B)
+- `RELEASE_REPORT.md`; audit Batch A/B structure
+- README ecosystem table aligned (`aiodoo-model`; multi-repo pipeline deferred)

@@ -90,11 +90,14 @@ Those remain permanently in `aiodoo-training`.
 
 | Repository | Role | Relationship to `aiodoo-colab` |
 | ---------- | ---- | ------------------------------ |
-| `aiodoo-core` | AIODOO framework (frozen) | Upstream product framework; Colab does not embed it |
-| `aiodoo-datasets` | Dataset generation (frozen) | Provides versioned datasets consumed via Drive / paths |
-| `aiodoo-training` | Training framework (frozen) | **Sole** training engine; Colab only invokes it |
-| `aiodoo-models` | Published adapters / models (future) | Receives exports produced *by* `aiodoo-training` |
-| `aiodoo-lab` | Experiments & research | May define experiment layouts Colab launches against |
+| `aiodoo-core` | Runtime foundation (frozen) | Upstream product framework; Colab does not embed it |
+| `aiodoo-datasets` | Dataset generation (frozen) | Provides versioned datasets on Drive / paths; **not** cloned/orchestrated by Colab in v2.0.0 |
+| `aiodoo-validation` | Certification profiles (frozen) | Upstream of training; **not** launched by Colab in v2.0.0 |
+| `aiodoo-training` | Training framework (frozen @ `v2.0.0`) | **Sole** training engine; Colab clones and invokes it |
+| `aiodoo-model` | Stage 2 registry (frozen) | Receives Capability Packages from training; **not** composed/published by Colab in v2.0.0 |
+| `aiodoo-vscode` | Thin-client IDE scaffold | Unrelated to Colab orchestration |
+
+**v2.0.0 honesty:** this repo is a **training launcher** (Drive + pin `aiodoo-training@v2.0.0` + `train.py`). A full multi-repo Colab pipeline (datasets → validation → model) is **Future Work**.
 
 ---
 
