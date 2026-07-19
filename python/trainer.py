@@ -94,7 +94,6 @@ def _resolve_dataset_path(workspace: Workspace, experiment: Experiment) -> Path:
     if isinstance(version, str) and version.strip():
         return workspace.datasets / version
 
-
     raise LauncherError(
         f"Experiment {experiment.experiment_id!r} has no resolvable dataset path "
         "(expected dataset_root or dataset_version in dataset.yaml)."
@@ -124,9 +123,7 @@ def _output_paths(workspace: Workspace, experiment_id: str) -> dict[str, Path]:
         "adapter_output": workspace.models / MODELS_ADAPTERS_DIR_NAME / adapter_id,
         "merged_output": workspace.models / MODELS_MERGED_DIR_NAME / adapter_id,
         "export_output": workspace.models / MODELS_EXPORTS_DIR_NAME / adapter_id,
-        "checkpoints_output": (
-            workspace.training / "cache" / training_id / "checkpoints"
-        ),
+        "checkpoints_output": (workspace.training / "cache" / training_id / "checkpoints"),
         "metrics_output": workspace.experiments / training_id / "metrics",
         "logs_output": workspace.experiments / training_id / "logs",
     }
@@ -143,10 +140,7 @@ def _resolve_training_config_path(workspace: Workspace, experiment: Experiment) 
     """
     training_id = normalize_training_id(experiment.experiment_id)
     canonical = (
-        workspace.training_repository
-        / TRAINING_CONFIG_ROOT
-        / training_id
-        / "experiment.yaml"
+        workspace.training_repository / TRAINING_CONFIG_ROOT / training_id / "experiment.yaml"
     )
     if canonical.is_file():
         return canonical

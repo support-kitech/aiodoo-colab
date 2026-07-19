@@ -62,6 +62,7 @@ def test_colab_default_model_cache_is_local_ssd() -> None:
     assert load_config().model_cache_root == DEFAULT_MODEL_CACHE_ROOT
     assert DEFAULT_MODEL_CACHE_ROOT == Path("/content/aiodoo-model-cache")
 
+
 def test_ensure_workspace_layout_does_not_remove_existing_files(
     workspace_config: object,
 ) -> None:

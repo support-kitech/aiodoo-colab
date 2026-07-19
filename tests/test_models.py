@@ -45,6 +45,7 @@ def test_local_path_under_model_cache(workspace: Workspace) -> None:
     store = ModelStore(workspace=workspace, model_id="acme/Example-Model")
     assert store.local_path() == workspace.model_cache / "acme__Example-Model"
 
+
 def test_exists_false_when_missing(workspace: Workspace) -> None:
     store = ModelStore(workspace=workspace, model_id="acme/Missing")
     assert store.exists() is False

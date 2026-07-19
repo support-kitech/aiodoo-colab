@@ -71,6 +71,7 @@ def test_build_training_context_resolves_paths(prepared: tuple[Workspace, Experi
     assert context.training_repository == ws.training_repository
     assert context.training_config_path.name == "training.yaml"
 
+
 def test_run_training_invokes_public_entrypoint(
     prepared: tuple[Workspace, ExperimentStore],
 ) -> None:
@@ -166,6 +167,7 @@ def test_run_training_non_streaming_uses_subprocess_run(
     assert result.success is True
     run_mock.assert_called_once()
     assert "-u" in run_mock.call_args.args[0]
+
 
 def test_run_training_missing_entrypoint(prepared: tuple[Workspace, ExperimentStore]) -> None:
     ws, store = prepared

@@ -1,13 +1,15 @@
 # AIODOO Colab
 
 > Thin Google Colab orchestration for the AIODOO training stack.
+>
+> **v2.0.0:** default training ref is tag `v2.0.0` (not moving `main`).
 
 ---
 
 ## Purpose
 
 `aiodoo-colab` integrates **Google Colab**, **Google Drive**, and the frozen
-training framework **`aiodoo-training`**.
+training framework **`aiodoo-training`** (pinned tag for freeze).
 
 It mounts Drive, verifies workspace layout, clones or updates
 `aiodoo-training`, manages model download locations, loads experiment

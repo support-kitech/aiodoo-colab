@@ -29,8 +29,8 @@ class ColabConfig:
     # Colab local SSD root for Hugging Face base-model snapshots.
     model_cache_root: Path = DEFAULT_MODEL_CACHE_ROOT
 
-    # Default git branch when none is specified for clone / checkout.
-    default_branch: str = "main"
+    # Default git ref for freeze path (annotated tag of aiodoo-training).
+    default_branch: str = "v2.0.0"
 
     # When True, attempt ``google.colab.drive.mount`` when not already mounted.
     auto_mount_drive: bool = True
@@ -56,7 +56,7 @@ def load_config(
     drive_mount_root: Path | None = None,
     training_repository_url: str | None = None,
     model_cache_root: Path | None = None,
-    default_branch: str = "main",
+    default_branch: str = "v2.0.0",
     auto_mount_drive: bool = True,
 ) -> ColabConfig:
     """
@@ -70,7 +70,9 @@ def load_config(
         drive_mount_root=drive_mount_root or base.drive_mount_root,
         aiodoo_root_relative=base.aiodoo_root_relative,
         training_repository_url=training_repository_url or base.training_repository_url,
-        model_cache_root=model_cache_root if model_cache_root is not None else base.model_cache_root,
+        model_cache_root=(
+            model_cache_root if model_cache_root is not None else base.model_cache_root
+        ),
         default_branch=default_branch,
         auto_mount_drive=auto_mount_drive,
     )

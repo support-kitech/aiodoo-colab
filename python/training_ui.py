@@ -5,15 +5,14 @@ from __future__ import annotations
 import ast
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 # HF Trainer log lines often look like: {'loss': 0.42, 'epoch': 0.15, ...}
 _METRIC_LINE_RE = re.compile(r"\{[^{}]*'loss'\s*:")
 _TQDM_RE = re.compile(r"(\d+)%\|.*?\|\s*(\d+)/(\d+)")
-_STEP_EPOCH_RE = re.compile(
-    r"'epoch'\s*:\s*([0-9.]+)|\"epoch\"\s*:\s*([0-9.]+)"
-)
+_STEP_EPOCH_RE = re.compile(r"'epoch'\s*:\s*([0-9.]+)|\"epoch\"\s*:\s*([0-9.]+)")
 
 
 def parse_training_log_line(line: str) -> dict[str, float | int | str]:
@@ -143,9 +142,7 @@ class TrainingMonitor:
                 "</pre>"
             )
         )
-        status = widgets.HTML(
-            value="<b>Status:</b> starting…"
-        )
+        status = widgets.HTML(value="<b>Status:</b> starting…")
         metrics = widgets.HTML(
             value="<b>Progress:</b> — &nbsp; <b>Loss:</b> — &nbsp; <b>ETA:</b> —"
         )
@@ -288,9 +285,9 @@ class TrainingMonitor:
             hours, mins = divmod(mins, 60)
             eta = f"{hours:02d}:{mins:02d}:{secs:02d}"
 
-        self._widgets["metrics"].value = (
-            f"<b>Progress:</b> {progress} &nbsp; <b>Loss:</b> {loss} &nbsp; <b>ETA:</b> {eta}"
-        )
+        self._widgets[
+            "metrics"
+        ].value = f"<b>Progress:</b> {progress} &nbsp; <b>Loss:</b> {loss} &nbsp; <b>ETA:</b> {eta}"
 
     def _refresh_elapsed(self) -> None:
         if self._widgets is None or self._started <= 0:
@@ -311,9 +308,9 @@ class TrainingMonitor:
             return
         colors = {"running": "#3584e4", "ok": "#2ec27e", "error": "#e01b24"}
         color = colors.get(kind, "#888")
-        self._widgets["status"].value = (
-            f"<b>Status:</b> <span style='color:{color}'>{message}</span>"
-        )
+        self._widgets[
+            "status"
+        ].value = f"<b>Status:</b> <span style='color:{color}'>{message}</span>"
 
 
 __all__ = ["TrainingMonitor", "parse_training_log_line"]

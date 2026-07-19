@@ -274,9 +274,7 @@ class ExperimentStore:
         ):
             if drive.exists():
                 if not drive.is_dir():
-                    raise ExperimentValidationError(
-                        f"Training path is not a directory: {drive}"
-                    )
+                    raise ExperimentValidationError(f"Training path is not a directory: {drive}")
                 if _config_dir_for_experiment_root(drive) is not None:
                     logger.info("Training validated (Drive): %s", training_id)
                     return drive
