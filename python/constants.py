@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from naming import TRAINING_ID_PATTERN
+
 # ---------------------------------------------------------------------------
 # Google Drive mount (Colab default)
 # ---------------------------------------------------------------------------
@@ -34,6 +36,15 @@ MODELS_ADAPTERS_DIR_NAME: str = "adapters"
 MODELS_MERGED_DIR_NAME: str = "merged"
 MODELS_EXPORTS_DIR_NAME: str = "exports"
 
+# aiodoo-model's own registry (identity index) and byte storage. These are
+# distinct from ``adapters``/``merged``/``exports`` above: those directories
+# hold aiodoo-training's raw Artifact Contract output (``artifact.json`` +
+# weights); ``registry``/``registry_storage`` hold aiodoo-model's
+# FileBackedRegistry + StorageManager state once an adapter has been
+# *published* into the model registry (see ``packaging.py``).
+MODELS_REGISTRY_DIR_NAME: str = "registry"
+MODELS_REGISTRY_STORAGE_DIR_NAME: str = "registry_storage"
+
 REQUIRED_TOP_LEVEL_DIRS: tuple[str, ...] = (
     DATASETS_DIR_NAME,
     MODELS_DIR_NAME,
@@ -47,7 +58,20 @@ REQUIRED_MODELS_SUBDIRS: tuple[str, ...] = (
     MODELS_ADAPTERS_DIR_NAME,
     MODELS_MERGED_DIR_NAME,
     MODELS_EXPORTS_DIR_NAME,
+    MODELS_REGISTRY_DIR_NAME,
+    MODELS_REGISTRY_STORAGE_DIR_NAME,
 )
+
+# ---------------------------------------------------------------------------
+# Training runtime cache (under training/) — checkpoints + Colab-generated
+# resume configs. Canonical layout authority: aiodoo-training
+# ArtifactOutputLayout.adapter_checkpoints_dir (``training/cache/<id>/checkpoints``).
+# ---------------------------------------------------------------------------
+
+TRAINING_CACHE_DIR_NAME: str = "cache"
+CHECKPOINTS_DIR_NAME: str = "checkpoints"
+CHECKPOINT_DIR_PREFIX: str = "checkpoint-"
+RESUME_CONFIG_FILENAME: str = "resume_config.yaml"
 
 # Composed relative Path fragments (relative to Drive mount root).
 AIODOO_ROOT_RELATIVE: Path = Path(AIODOO_ROOT_NAME)
@@ -101,13 +125,11 @@ EXPERIMENT_CONFIG_FILES: tuple[str, ...] = (
 )
 
 # Accepted public training ids (semantic) plus legacy EXP-NNNN for migration.
-# Prefer TRAINING_ID_PATTERN from naming.py for validation.
-EXPERIMENT_ID_PATTERN: str = (
-    r"^(?:coding|planner|context|conversation|repair|execution|approval|evaluation|"
-    r"EXP-\d{4})$"
-)
-# Alias — public surface uses training ids.
-TRAINING_ID_PATTERN: str = EXPERIMENT_ID_PATTERN
+# Single source of truth: naming.TRAINING_ID_PATTERN. Re-exported here (rather
+# than redefined) so path/config-facing call sites can import it from
+# ``constants`` without a second, independently-maintained copy of the regex.
+# ``EXPERIMENT_ID_PATTERN`` is a deprecated alias kept for backward compatibility.
+EXPERIMENT_ID_PATTERN: str = TRAINING_ID_PATTERN
 
 # Public root entrypoint inside aiodoo-training (application layout).
 TRAINING_PUBLIC_ENTRYPOINT: str = "train.py"
@@ -115,6 +137,8 @@ TRAINING_PUBLIC_ENTRYPOINT: str = "train.py"
 __all__ = [
     "AIODOO_ROOT_NAME",
     "AIODOO_ROOT_RELATIVE",
+    "CHECKPOINTS_DIR_NAME",
+    "CHECKPOINT_DIR_PREFIX",
     "DATASETS_DIR_NAME",
     "DATASETS_RELATIVE",
     "DEFAULT_DRIVE_MOUNT_RELATIVE",
@@ -133,11 +157,15 @@ __all__ = [
     "MODELS_DIR_NAME",
     "MODELS_EXPORTS_DIR_NAME",
     "MODELS_MERGED_DIR_NAME",
+    "MODELS_REGISTRY_DIR_NAME",
+    "MODELS_REGISTRY_STORAGE_DIR_NAME",
     "MODELS_RELATIVE",
     "MODEL_REQUIRED_FILES",
     "MODEL_WEIGHT_SUFFIXES",
     "REQUIRED_MODELS_SUBDIRS",
     "REQUIRED_TOP_LEVEL_DIRS",
+    "RESUME_CONFIG_FILENAME",
+    "TRAINING_CACHE_DIR_NAME",
     "TRAINING_DIR_NAME",
     "TRAINING_PUBLIC_ENTRYPOINT",
     "TRAINING_RELATIVE",

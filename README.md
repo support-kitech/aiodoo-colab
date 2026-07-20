@@ -1,6 +1,7 @@
 # AIODOO Colab
 
-> Thin Google Colab orchestration for the AIODOO training stack.
+> Thin Google Colab orchestration for the AIODOO ecosystem: training,
+> validation, and model packaging.
 >
 > **v2.0.0:** default training ref is tag `v2.0.0` (not moving `main`).
 
@@ -8,15 +9,22 @@
 
 ## Purpose
 
-`aiodoo-colab` integrates **Google Colab**, **Google Drive**, and the frozen
-training framework **`aiodoo-training`** (pinned tag for freeze).
+`aiodoo-colab` integrates **Google Colab**, **Google Drive**, and three
+frozen canonical frameworks:
+
+- **`aiodoo-training`** — launches training (subprocess, pinned tag)
+- **`aiodoo-validation`** — runs certification evaluations (in-process import)
+- **`aiodoo-model`** — packages/publishes adapters (in-process import)
 
 It mounts Drive, verifies workspace layout, clones or updates
 `aiodoo-training`, manages model download locations, loads experiment
-configuration, invokes the training CLI / entrypoints, and persists
-outputs back to Drive.
+configuration, invokes the training CLI / entrypoints, runs evaluations,
+publishes adapters into the model registry, and persists everything back to
+Drive.
 
-**This repository does not train models.** It only orchestrates.
+**This repository does not train models, validate/certify models, or
+package/merge adapters.** It only orchestrates the repositories that do. See
+`ECOSYSTEM_ADOPTION.md` for the full Phase 8 integration writeup.
 
 ---
 
@@ -51,38 +59,50 @@ imported as flat modules (``from config import …``).
 ## Architecture
 
 ```text
-Google Colab / main.py
+Google Colab / main.py / notebooks/01_train.ipynb
               │
               ▼
         aiodoo-colab          ← THIS repository (orchestration)
               │
-              ├── Google Drive workspace paths
-              ├── aiodoo-training (cloned / updated)
+              ├── Google Drive workspace paths (canonical layout)
+              ├── aiodoo-training (cloned / updated; subprocess)
+              ├── aiodoo-validation (in-process import)
+              ├── aiodoo-model (in-process import)
               └── HuggingFace model cache directories
               │
-              ▼
-        aiodoo-training       ← owns all training logic (frozen)
+    ┌─────────┼──────────────┬──────────────────┐
+    ▼         ▼               ▼                  ▼
+aiodoo-      aiodoo-       aiodoo-model      Google Drive
+training     validation    (registry +       (canonical
+(training    (evaluation/  storage)          directory
+logic)       certification)                  structure)
 ```
 
 ### What this repository owns
 
 - Drive mount and workspace verification
-- Workspace path constants and helpers
+- Workspace path constants and helpers (single canonical layout authority)
 - Fetch / update of `aiodoo-training`
 - Model download path management (cache directories only)
-- Experiment config location / load plumbing
-- Launching `aiodoo-training` entrypoints
+- Experiment selection, configuration location / load plumbing
+- Launching `aiodoo-training` entrypoints (with resume support)
+- Invoking `aiodoo-validation` evaluations for a completed training run
+- Invoking `aiodoo-model` to publish/resolve/materialize adapters
+- Read-only checkpoint / artifact discovery and browsing
+- Progress display, logging, and notebook UX
 - Returning artifacts to Drive
 
 ### What this repository must never own
 
 - Dataset loading / tokenization
 - Model / LoRA / PEFT application logic
-- Trainer loops, checkpoints, resume
-- Evaluation / export / Artifact Contract
-- Training CLI implementation
+- Trainer loops, optimizer/scheduler setup, resource planning
+- Behavioral/structural validation, scoring, certification, reporting logic
+- Adapter composition, merge planning, package metadata, export/compatibility logic
+- Checkpoint *content* validation (RNG state, optimizer state, fingerprints)
 
-Those remain permanently in `aiodoo-training`.
+Those remain permanently in `aiodoo-training`, `aiodoo-validation`, and
+`aiodoo-model` respectively — see `ECOSYSTEM_ADOPTION.md`.
 
 ---
 
@@ -91,13 +111,16 @@ Those remain permanently in `aiodoo-training`.
 | Repository | Role | Relationship to `aiodoo-colab` |
 | ---------- | ---- | ------------------------------ |
 | `aiodoo-core` | Runtime foundation (frozen) | Upstream product framework; Colab does not embed it |
-| `aiodoo-datasets` | Dataset generation (frozen) | Provides versioned datasets on Drive / paths; **not** cloned/orchestrated by Colab in v2.0.0 |
-| `aiodoo-validation` | Certification profiles (frozen) | Upstream of training; **not** launched by Colab in v2.0.0 |
-| `aiodoo-training` | Training framework (frozen @ `v2.0.0`) | **Sole** training engine; Colab clones and invokes it |
-| `aiodoo-model` | Stage 2 registry (frozen) | Receives Capability Packages from training; **not** composed/published by Colab in v2.0.0 |
+| `aiodoo-datasets` | Dataset generation (frozen) | Provides versioned datasets on Drive / paths; Colab reads dataset paths, never generates them |
+| `aiodoo-validation` | Certification profiles (frozen) | **Sole** evaluation engine; Colab imports `aiodoo_validation.api` in-process (`python/validation.py`) |
+| `aiodoo-training` | Training framework (frozen @ `v2.0.0`) | **Sole** training engine; Colab clones and invokes it via subprocess (`python/trainer.py`) |
+| `aiodoo-model` | Canonical packaging/registry (frozen) | **Sole** packaging/registry engine; Colab imports `aiodoo_model` in-process to publish/resolve/materialize (`python/packaging.py`) |
 | `aiodoo-vscode` | Thin-client IDE scaffold | Unrelated to Colab orchestration |
 
-**v2.0.0 honesty:** this repo is a **training launcher** (Drive + pin `aiodoo-training@v2.0.0` + `train.py`). A full multi-repo Colab pipeline (datasets → validation → model) is **Future Work**.
+**Phase 8:** `aiodoo-colab` is the canonical orchestration environment for
+training, validation, model packaging, and experiments — see
+`ECOSYSTEM_ADOPTION.md` for the full integration writeup, duplication
+removed/retained, and reliability improvements.
 
 ---
 
@@ -109,7 +132,8 @@ Those remain permanently in `aiodoo-training`.
 **Phase 3 — Model management** (complete)  
 **Phase 4 — Experiment management** (complete)  
 **Phase 5 — Training integration** (complete)  
-**Phase 6 — Colab notebook** (complete)
+**Phase 6 — Colab notebook** (complete)  
+**Phase 8 — Ecosystem adoption: validation + model packaging + resume/artifacts** (complete)
 
 Phase 1 mounts and verifies Google Drive, locates the AIODOO workspace,
 validates required directories, and creates missing folders.
@@ -129,6 +153,12 @@ Phase 5 builds a `TrainingContext` and invokes the public
 
 Phase 6 provides `notebooks/01_train.ipynb` as a thin orchestration notebook.
 
+Phase 8 adds: resume-aware training launch (`trainer.resolve_resume_checkpoint`
+/ `prepare_resume_config`), read-only checkpoint/artifact discovery
+(`artifacts.py`), evaluation orchestration via `aiodoo-validation`
+(`validation.py`), and adapter publishing/resolution via `aiodoo-model`
+(`packaging.py`) — see `ECOSYSTEM_ADOPTION.md`.
+
 ---
 
 ## Storage layout
@@ -145,15 +175,18 @@ AIODOO/
 │   ├── aiodoo-training/        # cloned source (not artifact storage)
 │   └── cache/
 │       └── coding/
-│           └── checkpoints/    # runtime checkpoints
+│           └── checkpoints/    # runtime checkpoints (workspace.checkpoints_root)
+│               └── checkpoint-<step>/
 ├── models/
 │   ├── base/                   # layout placeholder (HF base models are NOT stored here)
 │   ├── adapters/
-│   │   └── aiodoo-coding/    # published adapter + artifact.json
+│   │   └── aiodoo-coding/    # published adapter + artifact.json (aiodoo-training output)
 │   ├── merged/
 │   │   └── aiodoo-coding/
-│   └── exports/
-│       └── aiodoo-coding/
+│   ├── exports/
+│   │   └── aiodoo-coding/
+│   ├── registry/               # aiodoo-model FileBackedRegistry (Release/Artifact records)
+│   └── registry_storage/       # aiodoo-model StorageManager blob storage
 ├── experiments/                 # read-only during training
 │   └── coding/
 │       ├── config/
@@ -161,6 +194,13 @@ AIODOO/
 │       └── logs/
 └── logs/                        # legacy; new runs use experiments/{training_id}/logs/
 ```
+
+`registry/` and `registry_storage/` are new in Phase 8
+(`workspace.Workspace.model_registry` / `.model_registry_storage`) — they are
+the Drive-backed roots `packaging.ModelRegistry` opens
+`aiodoo_model.registry.FileBackedRegistry` /
+`aiodoo_model.storage.StorageManager` against; this repository never writes
+into them directly.
 
 ### Colab local SSD (temporary) — Hugging Face base models only
 
@@ -242,6 +282,61 @@ monitor.finish(result)
 Canonical production training: **coding** in aiodoo-training  
 (`configs/training/coding/`).
 
+**Resume** (`auto_resume=True` or an explicit `resume_from=<checkpoint dir>`):
+`resolve_resume_checkpoint()` locates the latest (or requested) checkpoint
+under `workspace.checkpoints_root(training_id)`, and `prepare_resume_config()`
+writes a scratch copy of the training config with
+`checkpointing.resume_from` injected — the original config file on Drive is
+never mutated. All actual resume validation (RNG state, optimizer state,
+model fingerprint) is `aiodoo-training`'s own `ResumeCoordinator`; Colab only
+decides *whether to try* (see `artifacts.is_resumable`).
+
+## Validation orchestration (`validation.py`)
+
+```text
+completed TrainingResult (result.success must be True — fails closed otherwise)
+        ↓
+resolve_validation_refs(context, result)
+  → (base_model_ref, adapter_ref, merged_model_ref)
+        ↓
+aiodoo_validation.api.build_<training_id>_request(...)
+        ↓
+aiodoo_validation.api.ValidationService.create_default().validate(request)
+        ↓
+ValidationOutcome (successful / certified / run_result)
+```
+
+Requires `aiodoo_validation` importable (`pip install -e ../aiodoo-validation`
+or its repo root on `sys.path`); raises `ValidationIntegrationError` — never a
+silent no-op — if it is not.
+
+## Model packaging orchestration (`packaging.py`)
+
+```text
+completed TrainingResult (result.success must be True — fails closed otherwise)
+        ↓
+wait_for_path(adapter dir), wait_for_path(artifact.json)   # Drive FUSE sync
+        ↓
+aiodoo_model.publishing.PublishingService.publish(...)
+  registry/storage rooted at workspace.model_registry / .model_registry_storage
+        ↓
+PackagingResult (artifact_id / release_id / storage_uri / already_published)
+```
+
+Idempotent: re-running `publish_adapter(...)` for an already-published
+`artifact_id` (e.g. after a Colab disconnect) reports
+`already_published=True` instead of raising. Requires `aiodoo_model`
+importable (`pip install -e ../aiodoo-model`); raises
+`PackagingIntegrationError` otherwise.
+
+## Artifact browsing (`artifacts.py`)
+
+Read-only discovery of everything a training run has produced on Drive
+(adapter/merged/export publication state, discovered checkpoints, latest
+checkpoint, resumability, log/metric file counts) — `browse_training_artifacts`
++ `summarize_artifacts` for notebook printing. Never validates checkpoint
+*contents* beyond a non-empty-directory heuristic.
+
 ---
 
 ## Repository layout
@@ -255,6 +350,7 @@ aiodoo-colab/
 ├── python/
 │   ├── config.py
 │   ├── constants.py
+│   ├── naming.py           # single source of truth for semantic training ids
 │   ├── exceptions.py
 │   ├── colab_logging.py    # not named logging.py (avoids shadowing stdlib)
 │   ├── version.py
@@ -263,10 +359,14 @@ aiodoo-colab/
 │   ├── repository.py
 │   ├── models.py
 │   ├── experiments.py
-│   ├── trainer.py          # Phase 5 — invoke aiodoo-training only
-│   └── launcher.py         # aliases to trainer
+│   ├── trainer.py          # Phase 5 — invoke aiodoo-training only (+ Phase 8 resume)
+│   ├── launcher.py         # aliases to trainer
+│   ├── artifacts.py        # Phase 8 — read-only checkpoint/artifact discovery
+│   ├── validation.py       # Phase 8 — invoke aiodoo-validation only
+│   ├── packaging.py        # Phase 8 — invoke aiodoo-model only
+│   └── training_ui.py      # Colab progress UI (ipywidgets), presentation only
 ├── notebooks/
-│   └── 01_train.ipynb      # Phase 6 — thin Colab orchestration
+│   └── 01_train.ipynb      # Phase 6/8 — thin Colab orchestration (train → validate → package)
 └── tests/
 ```
 

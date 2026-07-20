@@ -39,8 +39,14 @@ def test_workspace_from_config_paths(workspace_config: object) -> None:
     assert ws.training_repository.name == "aiodoo-training"
     assert ws.model_cache == workspace_config.model_cache_root
     assert ws.adapters == ws.models / "adapters"
+    assert ws.merged == ws.models / "merged"
     assert ws.exports == ws.models / "exports"
-    assert ws.checkpoints == ws.adapters
+    assert ws.model_registry == ws.models / "registry"
+    assert ws.model_registry_storage == ws.models / "registry_storage"
+    assert ws.training_cache == ws.training / "cache"
+    assert ws.checkpoints_root("coding") == ws.training / "cache" / "coding" / "checkpoints"
+    # Accepts legacy EXP ids too, normalizing to the semantic training id.
+    assert ws.checkpoints_root("EXP-0001") == ws.checkpoints_root("coding")
 
 
 def test_ensure_workspace_layout_creates_directories(workspace_config: object) -> None:

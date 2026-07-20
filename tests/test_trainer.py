@@ -6,13 +6,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from config import load_config
-from exceptions import ExperimentValidationError, LauncherError
+from exceptions import CheckpointError, ExperimentValidationError, LauncherError
 from experiments import ExperimentStore
 from trainer import (
     TrainingResult,
     build_training_context,
+    prepare_resume_config,
+    resolve_resume_checkpoint,
     run_training,
     summarize_result,
 )
@@ -221,3 +224,208 @@ def test_invalid_experiment_rejected_on_validate(
     (bad / "config").mkdir(parents=True)
     with pytest.raises(ExperimentValidationError, match="Invalid training id"):
         store.validate("not-an-exp")
+
+
+def test_resolve_resume_checkpoint_returns_none_when_absent(
+    prepared: tuple[Workspace, ExperimentStore],
+) -> None:
+    ws, store = prepared
+    _write_experiment(ws)
+    experiment = store.load("coding")
+    context = build_training_context(ws, experiment)
+    assert resolve_resume_checkpoint(context) is None
+
+
+def test_resolve_resume_checkpoint_auto_discovers_latest(
+    prepared: tuple[Workspace, ExperimentStore],
+) -> None:
+    ws, store = prepared
+    _write_experiment(ws)
+    experiment = store.load("coding")
+    context = build_training_context(ws, experiment)
+
+    for step in (100, 300):
+        ckpt = context.checkpoints_output / f"checkpoint-{step}"
+        ckpt.mkdir(parents=True)
+        (ckpt / "trainer_state.json").write_text("{}", encoding="utf-8")
+
+    resolved = resolve_resume_checkpoint(context)
+    assert resolved == context.checkpoints_output / "checkpoint-300"
+
+
+def test_resolve_resume_checkpoint_rejects_empty_explicit_request(
+    prepared: tuple[Workspace, ExperimentStore],
+    tmp_path: Path,
+) -> None:
+    ws, store = prepared
+    _write_experiment(ws)
+    experiment = store.load("coding")
+    context = build_training_context(ws, experiment)
+
+    empty = tmp_path / "checkpoint-999"
+    empty.mkdir()
+    with pytest.raises(CheckpointError, match="empty"):
+        resolve_resume_checkpoint(context, requested=empty)
+
+
+def test_resolve_resume_checkpoint_rejects_missing_explicit_request(
+    prepared: tuple[Workspace, ExperimentStore],
+    tmp_path: Path,
+) -> None:
+    ws, store = prepared
+    _write_experiment(ws)
+    experiment = store.load("coding")
+    context = build_training_context(ws, experiment)
+
+    with pytest.raises(CheckpointError, match="does not exist"):
+        resolve_resume_checkpoint(context, requested=tmp_path / "checkpoint-999")
+
+
+def test_prepare_resume_config_injects_resume_from_without_mutating_source(
+    prepared: tuple[Workspace, ExperimentStore],
+) -> None:
+    ws, store = prepared
+    _write_experiment(ws)
+    experiment = store.load("coding")
+    context = build_training_context(ws, experiment)
+    original_text = context.training_config_path.read_text(encoding="utf-8")
+
+    checkpoint = context.checkpoints_output / "checkpoint-100"
+    checkpoint.mkdir(parents=True)
+    (checkpoint / "trainer_state.json").write_text("{}", encoding="utf-8")
+
+    scratch_path = prepare_resume_config(context, checkpoint)
+
+    assert scratch_path != context.training_config_path
+    assert context.training_config_path.read_text(encoding="utf-8") == original_text
+
+    merged = yaml.safe_load(scratch_path.read_text(encoding="utf-8"))
+    assert merged["checkpointing"]["resume_from"] == str(checkpoint)
+    assert merged["epochs"] == 1
+
+
+def test_prepare_resume_config_rewrites_relative_includes_to_absolute(
+    prepared: tuple[Workspace, ExperimentStore],
+) -> None:
+    """
+    Real production configs (``configs/training/<id>/experiment.yaml``) compose
+    via a relative ``include:`` list resolved against *that file's own*
+    directory (``aiodoo_training.config.system.ConfigComposer``). The scratch
+    resume config lives under ``training/cache/<id>/`` instead — a bare
+    relative ``include:`` copied as-is would 404 at compose time on the real
+    aiodoo-training side. This guards the fix: entries become absolute paths
+    pointing back at the *original* config's directory, so composition still
+    finds ``dataset.yaml`` et al. regardless of where the scratch file lives.
+    """
+    ws, store = prepared
+    exp = _write_experiment(ws)
+    config_dir = exp / "config"
+    # Real experiment.yaml shape: an `include:` list alongside a few
+    # directly-declared fields, exactly like configs/training/<id>/experiment.yaml.
+    # `_resolve_training_config_path` prefers `experiment.root/experiment.yaml`
+    # (the composed root, one level above `config/`) over the flat
+    # `config/training.yaml` fallback — matches the real Drive/canonical layout.
+    experiment_yaml = exp / "experiment.yaml"
+    experiment_yaml.write_text(
+        "schema_version: '1.0'\n"
+        "name: coding\n"
+        "include:\n"
+        "  - config/dataset.yaml\n"
+        "  - config/model.yaml\n"
+        "  - config/training.yaml\n"
+        "  - config/evaluation.yaml\n"
+        "  - config/export.yaml\n",
+        encoding="utf-8",
+    )
+    experiment = store.load("coding")
+    context = build_training_context(ws, experiment)
+    assert context.training_config_path == experiment_yaml
+
+    checkpoint = context.checkpoints_output / "checkpoint-200"
+    checkpoint.mkdir(parents=True)
+    (checkpoint / "trainer_state.json").write_text("{}", encoding="utf-8")
+
+    scratch_path = prepare_resume_config(context, checkpoint)
+    merged = yaml.safe_load(scratch_path.read_text(encoding="utf-8"))
+
+    assert merged["checkpointing"]["resume_from"] == str(checkpoint)
+    for entry in merged["include"]:
+        assert Path(entry).is_absolute()
+        assert Path(entry).parent == config_dir
+        assert Path(entry).is_file()
+
+
+def test_run_training_auto_resume_uses_latest_checkpoint(
+    prepared: tuple[Workspace, ExperimentStore],
+) -> None:
+    ws, store = prepared
+    _write_experiment(ws)
+    (ws.training_repository).mkdir(parents=True)
+    (ws.training_repository / "train.py").write_text("# fake\n", encoding="utf-8")
+    experiment = store.load("coding")
+    context = build_training_context(ws, experiment)
+
+    checkpoint = context.checkpoints_output / "checkpoint-100"
+    checkpoint.mkdir(parents=True)
+    (checkpoint / "trainer_state.json").write_text("{}", encoding="utf-8")
+
+    class _FakeStdout:
+        def __iter__(self):
+            return iter([])
+
+    class _FakeProc:
+        stdout = _FakeStdout()
+
+        def wait(self, timeout: float | None = None) -> int:
+            _ = timeout
+            return 0
+
+        def kill(self) -> None:
+            return None
+
+    with patch("trainer.subprocess.Popen", return_value=_FakeProc()) as popen_mock:
+        result = run_training(context, auto_resume=True)
+
+    assert result.success is True
+    args = popen_mock.call_args.args[0]
+    config_arg = Path(args[args.index("--config") + 1])
+    assert config_arg.name == "resume_config.yaml"
+    merged = yaml.safe_load(config_arg.read_text(encoding="utf-8"))
+    assert merged["checkpointing"]["resume_from"] == str(checkpoint)
+
+
+def test_run_training_without_resume_uses_canonical_config(
+    prepared: tuple[Workspace, ExperimentStore],
+) -> None:
+    ws, store = prepared
+    _write_experiment(ws)
+    (ws.training_repository).mkdir(parents=True)
+    (ws.training_repository / "train.py").write_text("# fake\n", encoding="utf-8")
+    experiment = store.load("coding")
+    context = build_training_context(ws, experiment)
+
+    checkpoint = context.checkpoints_output / "checkpoint-100"
+    checkpoint.mkdir(parents=True)
+    (checkpoint / "trainer_state.json").write_text("{}", encoding="utf-8")
+
+    class _FakeStdout:
+        def __iter__(self):
+            return iter([])
+
+    class _FakeProc:
+        stdout = _FakeStdout()
+
+        def wait(self, timeout: float | None = None) -> int:
+            _ = timeout
+            return 0
+
+        def kill(self) -> None:
+            return None
+
+    with patch("trainer.subprocess.Popen", return_value=_FakeProc()) as popen_mock:
+        result = run_training(context)
+
+    assert result.success is True
+    args = popen_mock.call_args.args[0]
+    config_arg = Path(args[args.index("--config") + 1])
+    assert config_arg == context.training_config_path

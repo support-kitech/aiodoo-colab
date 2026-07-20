@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,9 +14,11 @@ from drive import (
     is_colab_environment,
     is_drive_mounted,
     mount_google_drive,
+    require_path_synced,
     verify_drive_mounted,
+    wait_for_path,
 )
-from exceptions import DriveMountError
+from exceptions import DriveMountError, DriveSyncError
 
 
 @pytest.fixture
@@ -75,3 +79,41 @@ def test_mount_google_drive_calls_colab_mount(tmp_path: Path) -> None:
 
 def test_is_colab_environment_false_outside_colab() -> None:
     assert is_colab_environment() is False
+
+
+def test_wait_for_path_returns_true_immediately_when_path_exists(tmp_path: Path) -> None:
+    target = tmp_path / "already-there"
+    target.mkdir()
+    assert wait_for_path(target, timeout=5.0, poll_interval=0.01) is True
+
+
+def test_wait_for_path_returns_false_on_timeout(tmp_path: Path) -> None:
+    target = tmp_path / "never-appears"
+    assert wait_for_path(target, timeout=0.05, poll_interval=0.01) is False
+
+
+def test_wait_for_path_detects_path_created_during_poll(tmp_path: Path) -> None:
+    target = tmp_path / "appears-soon"
+
+    def _create_after_delay() -> None:
+        time.sleep(0.05)
+        target.mkdir()
+
+    thread = threading.Thread(target=_create_after_delay)
+    thread.start()
+    try:
+        assert wait_for_path(target, timeout=2.0, poll_interval=0.01) is True
+    finally:
+        thread.join()
+
+
+def test_require_path_synced_succeeds_when_path_exists(tmp_path: Path) -> None:
+    target = tmp_path / "here"
+    target.mkdir()
+    require_path_synced(target, timeout=1.0, poll_interval=0.01)  # must not raise
+
+
+def test_require_path_synced_raises_drive_sync_error_on_timeout(tmp_path: Path) -> None:
+    target = tmp_path / "missing"
+    with pytest.raises(DriveSyncError, match="did not become visible"):
+        require_path_synced(target, timeout=0.05, poll_interval=0.01, description="Test artifact")
