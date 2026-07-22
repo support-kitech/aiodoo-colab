@@ -17,13 +17,35 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 files = ["python", "main.py"]
-mypy_path = "python"
-
+# aiodoo_model / aiodoo_validation are sibling ecosystem repositories consumed
+# in-process (see ECOSYSTEM_ADOPTION.md Section 3/4) — never vendored or
+# redistributed here. aiodoo_model is additionally pip-installed in CI/dev
+# environments; the sibling path is a local-checkout fallback.
+mypy_path = ["python", "../aiodoo-model", "../aiodoo-validation"]
 
 [[tool.mypy.overrides]]
-module = ["google", "google.colab", "huggingface_hub", "yaml"]
+module = ["google", "google.colab", "huggingface_hub", "yaml", "ipywidgets", "IPython.display"]
 ignore_missing_imports = true
+
+# aiodoo_validation ships no py.typed marker / distribution metadata (it is
+# deliberately not PyPI-packaged — see aiodoo-validation/README.md). Treat it
+# as untyped rather than failing when the sibling checkout is unavailable.
+[[tool.mypy.overrides]]
+module = ["aiodoo_validation.*"]
+ignore_missing_imports = true
+
+# aiodoo_model / aiodoo_validation are separately-owned, already-frozen
+# repositories with their own mypy/CI gates (see their CONTRACT_ADOPTION.md).
+# follow_imports = "skip" stops mypy from re-typechecking their internals
+# (including their own aiodoo_contract dependency, which this repository does
+# not install) when the sibling checkout above resolves `import aiodoo_model`
+# / `import aiodoo_validation` — this repo only ever touches their public
+# `api` / top-level surfaces via `Any`-typed lazy imports (see
+# packaging.py::_import_aiodoo_model, validation.py::_import_validation_api).
+[[tool.mypy.overrides]]
+module = ["aiodoo_model.*", "aiodoo_validation.*"]
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["python"]
+pythonpath = ["python", "../aiodoo-validation"]

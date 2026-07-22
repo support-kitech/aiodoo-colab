@@ -4,13 +4,23 @@ from __future__ import annotations
 
 import importlib
 import logging
+import time
 from pathlib import Path
 
 from config import ColabConfig
 from constants import GOOGLE_DRIVE_ROOT_NAME
-from exceptions import DriveMountError
+from exceptions import DriveMountError, DriveSyncError
 
 logger = logging.getLogger("aiodoo_colab")
+
+# Google Drive's FUSE mount is eventually consistent: a file written by a
+# just-exited subprocess (e.g. aiodoo-training's train.py) can take a moment
+# to become visible through the mount point. Callers that must read a
+# Drive-persisted path immediately after another process wrote it (packaging,
+# validation) should poll via ``wait_for_path`` instead of checking once and
+# failing closed on a false negative.
+DEFAULT_DRIVE_SYNC_TIMEOUT_SECONDS: float = 30.0
+DEFAULT_DRIVE_SYNC_POLL_SECONDS: float = 0.5
 
 
 def is_colab_environment() -> bool:
@@ -102,10 +112,57 @@ def verify_drive_mounted(config: ColabConfig) -> Path:
     return mount_root
 
 
+def wait_for_path(
+    path: Path,
+    *,
+    timeout: float = DEFAULT_DRIVE_SYNC_TIMEOUT_SECONDS,
+    poll_interval: float = DEFAULT_DRIVE_SYNC_POLL_SECONDS,
+) -> bool:
+    """
+    Poll for ``path`` to become visible, tolerating Google Drive FUSE sync lag.
+
+    Returns True as soon as ``path.exists()`` is true; returns False (never
+    raises) once ``timeout`` elapses without the path appearing — callers
+    decide whether a missing path after the wait is a hard failure. A single
+    ``path.exists()`` check right after a subprocess exits is not reliable on
+    Drive-mounted paths, so this must be used before treating a fresh
+    Drive-written path as absent.
+    """
+    deadline = time.monotonic() + max(timeout, 0.0)
+    while True:
+        if path.exists():
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(max(poll_interval, 0.0))
+
+
+def require_path_synced(
+    path: Path,
+    *,
+    timeout: float = DEFAULT_DRIVE_SYNC_TIMEOUT_SECONDS,
+    poll_interval: float = DEFAULT_DRIVE_SYNC_POLL_SECONDS,
+    description: str | None = None,
+) -> None:
+    """
+    Fail-closed variant of ``wait_for_path``: raises ``DriveSyncError`` instead
+    of returning False when ``path`` does not appear within ``timeout``.
+
+    Use this at call sites (packaging, validation) where a missing path after
+    the sync window is an error, not a caller-decided outcome.
+    """
+    if wait_for_path(path, timeout=timeout, poll_interval=poll_interval):
+        return
+    label = description or str(path)
+    raise DriveSyncError(f"{label} did not become visible on Drive within {timeout}s: {path}")
+
+
 __all__ = [
     "is_colab_environment",
     "is_drive_mounted",
     "mount_google_drive",
+    "require_path_synced",
     "resolve_drive_mount_root",
     "verify_drive_mounted",
+    "wait_for_path",
 ]

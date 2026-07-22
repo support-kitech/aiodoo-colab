@@ -178,7 +178,7 @@ class TrainingMonitor:
             "panel": panel,
         }
         self._started = time.perf_counter()
-        display(panel)
+        display(panel)  # type: ignore[no-untyped-call]  # IPython.display ships no stubs
         self._set_status("running", "Training subprocess started — streaming logs…")
 
     def on_line(self, line: str) -> None:

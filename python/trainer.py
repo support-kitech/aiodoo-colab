@@ -12,13 +12,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from artifacts import CheckpointInfo, is_resumable, latest_checkpoint
 from constants import (
     MODELS_ADAPTERS_DIR_NAME,
     MODELS_EXPORTS_DIR_NAME,
     MODELS_MERGED_DIR_NAME,
+    RESUME_CONFIG_FILENAME,
     TRAINING_PUBLIC_ENTRYPOINT,
 )
-from exceptions import LauncherError
+from exceptions import CheckpointError, LauncherError
 from experiments import Experiment
 from models import ModelStore, deterministic_model_dirname
 from naming import TRAINING_CONFIG_ROOT, adapter_product_id, normalize_training_id
@@ -123,7 +125,7 @@ def _output_paths(workspace: Workspace, experiment_id: str) -> dict[str, Path]:
         "adapter_output": workspace.models / MODELS_ADAPTERS_DIR_NAME / adapter_id,
         "merged_output": workspace.models / MODELS_MERGED_DIR_NAME / adapter_id,
         "export_output": workspace.models / MODELS_EXPORTS_DIR_NAME / adapter_id,
-        "checkpoints_output": (workspace.training / "cache" / training_id / "checkpoints"),
+        "checkpoints_output": workspace.checkpoints_root(training_id),
         "metrics_output": workspace.experiments / training_id / "metrics",
         "logs_output": workspace.experiments / training_id / "logs",
     }
@@ -186,9 +188,110 @@ def build_training_context(
     return context
 
 
+def resolve_resume_checkpoint(
+    context: TrainingContext,
+    *,
+    requested: Path | str | None = None,
+) -> Path | None:
+    """
+    Decide which checkpoint (if any) a training run should resume from.
+
+    ``requested`` — an explicit checkpoint directory — is validated for
+    existence and non-emptiness and returned as-is. When ``requested`` is
+    None, the latest checkpoint under ``context.checkpoints_output`` is
+    auto-discovered; returns None when none exists (fresh-start signal).
+
+    Never inspects checkpoint *contents* beyond non-emptiness — deep
+    validation (RNG state, optimizer state, model fingerprint match) is
+    exclusively aiodoo-training's ``ResumeCoordinator``, invoked when
+    ``train.py`` reads the ``checkpointing.resume_from`` field this function's
+    caller (``run_training``) injects.
+    """
+    if requested is not None:
+        path = Path(requested)
+        candidate = CheckpointInfo(step=-1, path=path)
+        if not path.is_dir():
+            raise CheckpointError(f"Requested resume checkpoint does not exist: {path}")
+        if not is_resumable(candidate):
+            raise CheckpointError(f"Requested resume checkpoint is empty: {path}")
+        return path
+
+    found = latest_checkpoint(context.checkpoints_output)
+    if found is None:
+        return None
+    if not is_resumable(found):
+        logger.warning("Latest checkpoint %s is empty; ignoring for auto-resume.", found.path)
+        return None
+    return found.path
+
+
+def prepare_resume_config(context: TrainingContext, checkpoint: Path) -> Path:
+    """
+    Write a Colab-owned scratch copy of the training config with
+    ``checkpointing.resume_from`` pointed at ``checkpoint``.
+
+    Never mutates the canonical/Drive experiment config (``experiments/`` is
+    read-only during training, per repository design) — writes to
+    ``training/cache/<training_id>/resume_config.yaml`` instead. Every other
+    field is passed through unchanged; aiodoo-training performs all resume
+    validation and state restoration.
+    """
+    try:
+        import yaml  # noqa: PLC0415
+    except ImportError as exc:
+        raise LauncherError(
+            "PyYAML is required to prepare a resumable training config. "
+            "Install it in the Colab / runtime environment."
+        ) from exc
+
+    source = context.training_config_path
+    try:
+        raw = yaml.safe_load(source.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise LauncherError(f"Cannot read training config {source}: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise LauncherError(f"Invalid YAML in training config {source}: {exc}") from exc
+
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise LauncherError(f"Training config root must be a mapping: {source}")
+
+    merged = dict(raw)
+    checkpointing = dict(merged.get("checkpointing") or {})
+    checkpointing["resume_from"] = str(checkpoint)
+    merged["checkpointing"] = checkpointing
+
+    # Canonical production configs compose via a relative `include:` list
+    # (see aiodoo-training's ConfigComposer — includes resolve relative to
+    # *this* file's own directory). The scratch copy below lives under
+    # `training/cache/<id>/`, not next to the sibling fragment files, so a
+    # relative include would 404 at compose time. Rewriting each entry to
+    # an absolute path (relative to the *source* file's directory) keeps
+    # every other field byte-identical while making the scratch file
+    # self-sufficient regardless of where it is written.
+    includes = merged.get("include")
+    if isinstance(includes, list):
+        merged["include"] = [
+            str((source.parent / entry).resolve())
+            if isinstance(entry, str) and entry.strip() and not Path(entry).is_absolute()
+            else entry
+            for entry in includes
+        ]
+
+    training_id = normalize_training_id(context.experiment.experiment_id)
+    scratch_dir = context.workspace.training_cache / training_id
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    scratch_path = scratch_dir / RESUME_CONFIG_FILENAME
+    scratch_path.write_text(yaml.safe_dump(merged, sort_keys=True), encoding="utf-8")
+    logger.info("Prepared resumable config %s (resume_from=%s)", scratch_path, checkpoint)
+    return scratch_path
+
+
 def _invoke_aiodoo_training(
     context: TrainingContext,
     *,
+    config_path: Path,
     on_log_line: LogLineCallback | None = None,
     stream_output: bool = True,
 ) -> int:
@@ -208,8 +311,8 @@ def _invoke_aiodoo_training(
             "Ensure aiodoo-training was cloned under the workspace training/ directory."
         )
 
-    if not context.training_config_path.is_file():
-        raise LauncherError(f"Training config not found: {context.training_config_path}")
+    if not config_path.is_file():
+        raise LauncherError(f"Training config not found: {config_path}")
 
     env_hints: dict[str, str] = {
         _WORKSPACE_ENV: str(context.workspace.root),
@@ -223,7 +326,7 @@ def _invoke_aiodoo_training(
         "-u",
         str(entry),
         "--config",
-        str(context.training_config_path),
+        str(config_path),
     ]
     logger.info("Invoking aiodoo-training: %s", " ".join(command))
     logger.info("Working directory: %s", context.training_repository)
@@ -296,6 +399,8 @@ def run_training(
     *,
     on_log_line: LogLineCallback | None = None,
     stream_output: bool = True,
+    resume_from: Path | str | None = None,
+    auto_resume: bool = False,
 ) -> TrainingResult:
     """
     Orchestrate one training run via aiodoo-training's public entrypoint.
@@ -309,6 +414,13 @@ def run_training(
         Optional callback invoked for each streamed log line (for Colab UI).
     stream_output:
         When True, stream child process logs live into the notebook cell.
+    resume_from:
+        Explicit checkpoint directory to resume from. Validated for
+        existence/non-emptiness; raises ``CheckpointError`` if unusable.
+    auto_resume:
+        When True and ``resume_from`` is not given, resume from the latest
+        checkpoint under ``context.checkpoints_output`` if one exists;
+        otherwise starts a fresh run. Ignored when ``resume_from`` is set.
     """
     logger.info("Training start experiment=%s", context.experiment.experiment_id)
     logger.info(
@@ -320,12 +432,25 @@ def run_training(
 
     started = time.perf_counter()
     try:
+        checkpoint: Path | None = None
+        if resume_from is not None:
+            checkpoint = resolve_resume_checkpoint(context, requested=resume_from)
+        elif auto_resume:
+            checkpoint = resolve_resume_checkpoint(context)
+        config_path = context.training_config_path
+        if checkpoint is not None:
+            logger.info("Resuming training from checkpoint: %s", checkpoint)
+            config_path = prepare_resume_config(context, checkpoint)
+        elif auto_resume:
+            logger.info("auto_resume requested but no usable checkpoint found; starting fresh.")
+
         exit_code = _invoke_aiodoo_training(
             context,
+            config_path=config_path,
             on_log_line=on_log_line,
             stream_output=stream_output,
         )
-    except LauncherError as exc:
+    except (LauncherError, CheckpointError) as exc:
         duration = time.perf_counter() - started
         logger.error("Training finish (failed orchestration): %s", exc)
         return TrainingResult(
@@ -382,6 +507,8 @@ __all__ = [
     "TrainingContext",
     "TrainingResult",
     "build_training_context",
+    "prepare_resume_config",
+    "resolve_resume_checkpoint",
     "run_training",
     "summarize_result",
 ]

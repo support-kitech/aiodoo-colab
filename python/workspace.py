@@ -8,19 +8,25 @@ from pathlib import Path
 
 from config import ColabConfig
 from constants import (
+    CHECKPOINTS_DIR_NAME,
     DATASETS_DIR_NAME,
     EXPERIMENTS_DIR_NAME,
     LOGS_DIR_NAME,
     MODELS_ADAPTERS_DIR_NAME,
     MODELS_DIR_NAME,
     MODELS_EXPORTS_DIR_NAME,
+    MODELS_MERGED_DIR_NAME,
+    MODELS_REGISTRY_DIR_NAME,
+    MODELS_REGISTRY_STORAGE_DIR_NAME,
     REQUIRED_MODELS_SUBDIRS,
     REQUIRED_TOP_LEVEL_DIRS,
+    TRAINING_CACHE_DIR_NAME,
     TRAINING_DIR_NAME,
     TRAINING_REPOSITORY_NAME,
 )
 from drive import mount_google_drive, verify_drive_mounted
 from exceptions import WorkspaceError
+from naming import normalize_training_id
 
 logger = logging.getLogger("aiodoo_colab")
 
@@ -50,18 +56,40 @@ class Workspace:
         return self.models / MODELS_ADAPTERS_DIR_NAME
 
     @property
+    def merged(self) -> Path:
+        """Drive path for merged base+adapter models (persistent)."""
+        return self.models / MODELS_MERGED_DIR_NAME
+
+    @property
     def exports(self) -> Path:
         """Drive path for export bundles (persistent)."""
         return self.models / MODELS_EXPORTS_DIR_NAME
 
     @property
-    def checkpoints(self) -> Path:
-        """
-        Drive root for checkpoint trees (persistent).
+    def model_registry(self) -> Path:
+        """Drive root for aiodoo-model's ``FileBackedRegistry`` (identity index)."""
+        return self.models / MODELS_REGISTRY_DIR_NAME
 
-        Per-experiment checkpoints live under ``adapters/<EXP>/checkpoints``.
+    @property
+    def model_registry_storage(self) -> Path:
+        """Drive root for aiodoo-model's ``StorageManager`` (published bytes)."""
+        return self.models / MODELS_REGISTRY_STORAGE_DIR_NAME
+
+    @property
+    def training_cache(self) -> Path:
+        """Root for ephemeral per-training runtime cache (checkpoints, resume configs)."""
+        return self.training / TRAINING_CACHE_DIR_NAME
+
+    def checkpoints_root(self, training_id: str) -> Path:
         """
-        return self.adapters
+        Canonical checkpoint directory for one training id (persistent).
+
+        Matches aiodoo-training's ``ArtifactOutputLayout.adapter_checkpoints_dir``
+        exactly (``training/cache/<training_id>/checkpoints/``) — this is the
+        single source of truth other modules (``trainer``, ``artifacts``) must
+        use instead of re-deriving the path locally.
+        """
+        return self.training_cache / normalize_training_id(training_id) / CHECKPOINTS_DIR_NAME
 
     @classmethod
     def from_config(cls, config: ColabConfig) -> Workspace:
@@ -106,9 +134,10 @@ def ensure_workspace_layout(workspace: Workspace) -> Workspace:
     Validate and create missing workspace directories.
 
     Creates top-level ``datasets``, ``models``, ``experiments``, ``logs``,
-    ``training`` and required ``models/{base,adapters,merged,exports}`` on Drive,
-    plus the local ``model_cache`` directory for Hugging Face base models.
-    Does not modify existing dataset or experiment contents.
+    ``training`` and required
+    ``models/{base,adapters,merged,exports,registry,registry_storage}`` on
+    Drive, plus the local ``model_cache`` directory for Hugging Face base
+    models. Does not modify existing dataset or experiment contents.
     """
     if not workspace.root.parent.exists():
         raise WorkspaceError(f"Drive mount parent missing for workspace root: {workspace.root}")

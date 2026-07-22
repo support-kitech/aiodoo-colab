@@ -67,10 +67,28 @@ class LauncherError(AiodooColabError):
     """Failures while invoking aiodoo-training entrypoints."""
 
 
+class DriveSyncError(DriveError):
+    """A Drive-persisted path did not become visible within the sync timeout."""
+
+
+class CheckpointError(AiodooColabError):
+    """Checkpoint discovery, validation, or resume-preparation failures."""
+
+
+class ValidationIntegrationError(AiodooColabError):
+    """Failures while invoking aiodoo-validation (never validation *outcomes*)."""
+
+
+class PackagingIntegrationError(AiodooColabError):
+    """Failures while invoking aiodoo-model for adapter packaging."""
+
+
 __all__ = [
     "AiodooColabError",
+    "CheckpointError",
     "DriveError",
     "DriveMountError",
+    "DriveSyncError",
     "ExperimentError",
     "ExperimentNotFoundError",
     "ExperimentValidationError",
@@ -79,9 +97,11 @@ __all__ = [
     "ModelDownloadError",
     "ModelNotFoundError",
     "ModelVerificationError",
+    "PackagingIntegrationError",
     "RepositoryCheckoutError",
     "RepositoryCloneError",
     "RepositoryError",
     "RepositoryUpdateError",
+    "ValidationIntegrationError",
     "WorkspaceError",
 ]
