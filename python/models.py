@@ -160,6 +160,8 @@ class ModelStore:
         Ensure the model is available locally.
 
         Reuses an existing verified snapshot unless ``force_download`` is True.
+        If a directory exists but fails verification (e.g. Colab killed mid-download
+        after disk full), remove it and download again — same for Qwen or DeepSeek.
         """
         path = self.local_path()
         if not force_download and self.exists():
@@ -168,6 +170,16 @@ class ModelStore:
 
         if force_download:
             logger.info("Force download requested for model_id=%s", self.model_id)
+        elif path.exists():
+            logger.warning(
+                "Incomplete model cache at %s; removing before re-download (model_id=%s)",
+                path,
+                self.model_id,
+            )
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
         else:
             logger.info("Model missing or incomplete at %s; downloading", path)
 
