@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from eval_corpus import materialize_drive_eval_corpus, resolve_corpus_root
 from exceptions import ValidationIntegrationError
 from naming import normalize_training_id
 from trainer import TrainingContext, TrainingResult
@@ -34,7 +36,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("aiodoo_colab")
 
-DEFAULT_EXECUTION_TIER: str = "standard"
+# Production default: ``standard`` never certifies (aiodoo-validation docs).
+DEFAULT_EXECUTION_TIER: str = "full"
 DEFAULT_ODOO_VERSIONS: tuple[int, ...] = (17, 18, 19)
 
 # Training ids with a request builder in aiodoo_validation.api. "repair" is a
@@ -60,7 +63,8 @@ def _import_validation_api() -> Any:
         raise ValidationIntegrationError(
             "aiodoo_validation is not importable. Install it alongside "
             "aiodoo-colab, e.g. `pip install -e ../aiodoo-validation`, or add "
-            "its repository root to sys.path before calling run_validation()."
+            "its repository root to sys.path before calling run_validation(). "
+            f"Underlying import error: {exc}"
         ) from exc
     return api
 
@@ -104,6 +108,35 @@ def resolve_validation_refs(
     return base_model_ref, adapter_ref, merged_model_ref
 
 
+def prepare_production_corpus(
+    *,
+    dataset_path: Path,
+    training_id: str,
+    dataset_version: str = "v1.0.0",
+    force: bool = False,
+) -> tuple[str, str]:
+    """
+    Materialize Drive ``corpus/<id>_eval_corpus.jsonl`` into a validation
+    package and return ``(corpus_id, corpus_package_dir)``.
+    """
+    corpus_root = resolve_corpus_root(Path(dataset_path))
+    packaged = materialize_drive_eval_corpus(
+        corpus_root=corpus_root,
+        training_id=normalize_training_id(training_id),
+        dataset_version=dataset_version,
+        force=force,
+    )
+    logger.info(
+        "Production corpus ready training_id=%s corpus_id=%s records=%s skipped=%s path=%s",
+        packaged.training_id,
+        packaged.corpus_id,
+        packaged.record_count,
+        packaged.skipped,
+        packaged.package_dir,
+    )
+    return packaged.corpus_id, str(packaged.package_dir)
+
+
 def run_validation(
     context: TrainingContext,
     result: TrainingResult,
@@ -111,6 +144,9 @@ def run_validation(
     execution_tier: str = DEFAULT_EXECUTION_TIER,
     odoo_versions: tuple[int, ...] | str = DEFAULT_ODOO_VERSIONS,
     run_id: str | None = None,
+    evaluation_corpus_id: str | None = None,
+    evaluation_corpus_path: str | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> ValidationOutcome:
     """
     Run one aiodoo-validation evaluation for a completed training run.
@@ -121,6 +157,13 @@ def run_validation(
     validation *outcomes* (a failed/uncertified run is a legitimate result,
     not an integration error) — only environment/argument problems raise
     ``ValidationIntegrationError`` here.
+
+    Production certification requires:
+    - ``execution_tier`` in ``smoke|full|prod`` (``standard`` never certifies)
+    - ``evaluation_corpus_id`` + ``evaluation_corpus_path`` pointing at a
+      validation package directory (``manifest.json`` + ``records.jsonl``).
+      Use :func:`prepare_production_corpus` to build that from Drive
+      ``datasets/v1.0.0/corpus/*_eval_corpus.jsonl``.
     """
     if not result.success:
         raise ValidationIntegrationError(
@@ -133,6 +176,19 @@ def run_validation(
     api = _import_validation_api()
     builder = _profile_builder(api, training_id)
 
+    request_metadata: dict[str, object] = dict(metadata or {})
+    if evaluation_corpus_id:
+        request_metadata["evaluation_corpus_id"] = evaluation_corpus_id
+    if evaluation_corpus_path:
+        request_metadata["evaluation_corpus_path"] = evaluation_corpus_path
+
+    if "evaluation_corpus_path" not in request_metadata:
+        logger.warning(
+            "No evaluation_corpus_path for %s — behavior certification will defer "
+            "(successful may be True, certified will stay False).",
+            training_id,
+        )
+
     base_model_ref, adapter_ref, merged_model_ref = resolve_validation_refs(context, result)
     request = builder(
         base_model_ref=base_model_ref,
@@ -141,13 +197,15 @@ def run_validation(
         execution_tier=execution_tier,
         odoo_versions=odoo_versions,
         run_id=run_id,
+        metadata=request_metadata,
     )
 
     logger.info(
-        "Validation start training_id=%s execution_tier=%s adapter_ref=%s",
+        "Validation start training_id=%s execution_tier=%s adapter_ref=%s corpus_path=%s",
         training_id,
         execution_tier,
         adapter_ref,
+        request_metadata.get("evaluation_corpus_path"),
     )
     service = api.ValidationService.create_default()
     run_result = service.validate(request)
@@ -165,6 +223,41 @@ def run_validation(
         outcome.certified,
     )
     return outcome
+
+
+def run_production_validation(
+    context: TrainingContext,
+    result: TrainingResult,
+    *,
+    dataset_path: Path,
+    dataset_version: str = "v1.0.0",
+    execution_tier: str = DEFAULT_EXECUTION_TIER,
+    odoo_versions: tuple[int, ...] | str = DEFAULT_ODOO_VERSIONS,
+    run_id: str | None = None,
+    force_rematerialize: bool = False,
+) -> ValidationOutcome:
+    """
+    Production path: materialize Drive eval corpus → validate at ``full``/``prod``.
+
+    Uses ``AIODOO/datasets/<version>/corpus/<id>_eval_corpus.jsonl`` exclusively
+    (never the aiodoo-validation test fixtures).
+    """
+    training_id = normalize_training_id(context.experiment.experiment_id)
+    corpus_id, corpus_path = prepare_production_corpus(
+        dataset_path=Path(dataset_path),
+        training_id=training_id,
+        dataset_version=dataset_version,
+        force=force_rematerialize,
+    )
+    return run_validation(
+        context,
+        result,
+        execution_tier=execution_tier,
+        odoo_versions=odoo_versions,
+        run_id=run_id,
+        evaluation_corpus_id=corpus_id,
+        evaluation_corpus_path=corpus_path,
+    )
 
 
 def summarize_validation(outcome: ValidationOutcome) -> dict[str, object]:
@@ -185,7 +278,9 @@ __all__ = [
     "DEFAULT_EXECUTION_TIER",
     "DEFAULT_ODOO_VERSIONS",
     "ValidationOutcome",
+    "prepare_production_corpus",
     "resolve_validation_refs",
+    "run_production_validation",
     "run_validation",
     "summarize_validation",
 ]
