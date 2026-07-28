@@ -10,7 +10,7 @@ import pytest
 from config import load_config
 from exceptions import PackagingIntegrationError
 from experiments import ExperimentStore
-from packaging import (
+from model_packaging import (
     ModelRegistry,
     latest_release_id,
     materialize_release,

@@ -41,7 +41,7 @@ MODELS_EXPORTS_DIR_NAME: str = "exports"
 # hold aiodoo-training's raw Artifact Contract output (``artifact.json`` +
 # weights); ``registry``/``registry_storage`` hold aiodoo-model's
 # FileBackedRegistry + StorageManager state once an adapter has been
-# *published* into the model registry (see ``packaging.py``).
+# *published* into the model registry (see ``model_packaging.py``).
 MODELS_REGISTRY_DIR_NAME: str = "registry"
 MODELS_REGISTRY_STORAGE_DIR_NAME: str = "registry_storage"
 
