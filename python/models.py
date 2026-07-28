@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -130,10 +129,6 @@ class ModelStore:
                 "huggingface_hub is required for model download. "
                 "Install it in the Colab / runtime environment."
             ) from exc
-
-        # Avoid broken hf_transfer / hf_xet combos on Colab (mixed hub pins).
-        os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
-        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
         try:
             snapshot_download(
