@@ -357,9 +357,10 @@ def materialize_drive_eval_corpus(
         raise RuntimeError(
             f"No usable validation records for {training_id!r} from {source}.\n"
             f"Read {len(raw_rows)} contract rows, skipped {skipped}.\n"
-            "For coding: Drive coding_eval_corpus.jsonl currently has empty "
-            "edit contents — regenerate the eval corpus with real file content "
-            "before production behavior certification can pass."
+            "For coding: preferred gold is nonempty edits[].content. "
+            "If your Drive corpus still has empty contents, regenerate "
+            "coding_eval_corpus.jsonl from aiodoo-datasets (project_coding "
+            "now backfills from metadata.module_path)."
         )
 
     package_dir.mkdir(parents=True, exist_ok=True)
