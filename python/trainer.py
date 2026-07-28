@@ -112,7 +112,13 @@ def _resolve_model_path(workspace: Workspace, experiment: Experiment) -> Path:
     return ModelStore(workspace=workspace, model_id=model_id).local_path()
 
 
-def _output_paths(workspace: Workspace, experiment_id: str) -> dict[str, Path]:
+def _output_paths(
+    workspace: Workspace,
+    experiment_id: str,
+    *,
+    adapter_id: str | None = None,
+    cache_id: str | None = None,
+) -> dict[str, Path]:
     """
     Canonical production layout (authority: aiodoo-training ArtifactOutputLayout).
 
@@ -120,12 +126,13 @@ def _output_paths(workspace: Workspace, experiment_id: str) -> dict[str, Path]:
     match the training contract for diagnostics and result metadata.
     """
     training_id = normalize_training_id(experiment_id)
-    adapter_id = adapter_product_id(training_id)
+    resolved_adapter = (adapter_id or "").strip() or adapter_product_id(training_id)
+    resolved_cache = (cache_id or "").strip() or training_id
     return {
-        "adapter_output": workspace.models / MODELS_ADAPTERS_DIR_NAME / adapter_id,
-        "merged_output": workspace.models / MODELS_MERGED_DIR_NAME / adapter_id,
-        "export_output": workspace.models / MODELS_EXPORTS_DIR_NAME / adapter_id,
-        "checkpoints_output": workspace.checkpoints_root(training_id),
+        "adapter_output": workspace.models / MODELS_ADAPTERS_DIR_NAME / resolved_adapter,
+        "merged_output": workspace.models / MODELS_MERGED_DIR_NAME / resolved_adapter,
+        "export_output": workspace.models / MODELS_EXPORTS_DIR_NAME / resolved_adapter,
+        "checkpoints_output": workspace.checkpoints_root(resolved_cache),
         "metrics_output": workspace.experiments / training_id / "metrics",
         "logs_output": workspace.experiments / training_id / "logs",
     }
@@ -157,15 +164,34 @@ def build_training_context(
     experiment: Experiment,
     *,
     model_path: Path | None = None,
+    adapter_id: str | None = None,
+    cache_id: str | None = None,
 ) -> TrainingContext:
     """
     Build a ``TrainingContext`` from workspace + loaded experiment.
 
     Does not download models or mutate experiment directories.
+
+    ``adapter_id`` / ``cache_id`` (or env ``AIODOO_COLAB_ADAPTER_ID`` /
+    ``AIODOO_COLAB_CACHE_ID``) support dual-base context adapters
+    (``aiodoo-context-qwen`` vs ``aiodoo-context-deepseek``).
     """
     resolved_model = model_path or _resolve_model_path(workspace, experiment)
     dataset_path = _resolve_dataset_path(workspace, experiment)
-    outputs = _output_paths(workspace, experiment.experiment_id)
+    resolved_adapter = (
+        (adapter_id or "").strip()
+        or os.environ.get("AIODOO_COLAB_ADAPTER_ID", "").strip()
+        or None
+    )
+    resolved_cache = (
+        (cache_id or "").strip() or os.environ.get("AIODOO_COLAB_CACHE_ID", "").strip() or None
+    )
+    outputs = _output_paths(
+        workspace,
+        experiment.experiment_id,
+        adapter_id=resolved_adapter,
+        cache_id=resolved_cache,
+    )
     config_path = _resolve_training_config_path(workspace, experiment)
     context = TrainingContext(
         workspace=workspace,
