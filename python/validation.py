@@ -249,13 +249,23 @@ def run_production_validation(
         dataset_version=dataset_version,
         force=force_rematerialize,
     )
+    # Path-only selection (aiodoo-validation governance): custom production
+    # corpus ids are NOT in the builtin pin catalog. Passing evaluation_corpus_id
+    # for an unknown id raises "Unknown corpus identity". Path-only loads and
+    # pin-verifies later only if the package manifest id is a known pin.
+    logger.info(
+        "Using path-only production corpus training_id=%s package_corpus_id=%s path=%s",
+        training_id,
+        corpus_id,
+        corpus_path,
+    )
     return run_validation(
         context,
         result,
         execution_tier=execution_tier,
         odoo_versions=odoo_versions,
         run_id=run_id,
-        evaluation_corpus_id=corpus_id,
+        evaluation_corpus_id=None,
         evaluation_corpus_path=corpus_path,
     )
 
