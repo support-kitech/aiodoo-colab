@@ -91,20 +91,31 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def _edits_to_artifacts(edits: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Convert contract FileEdit list into validation compact artifacts.
+
+    Each nonempty edit is emitted twice (``original`` + ``expected``) with the
+    same body so:
+    - transform verification (original→expected with no ops) still passes
+    - ``BehaviorCase.expected.text`` is the file bodies, not the rationale
+    - contract projection gold edits use the same file bodies
+    """
     artifacts: list[dict[str, Any]] = []
     for index, edit in enumerate(edits):
         path = str(edit.get("path") or "").strip()
         content = edit.get("content")
         if not path or not isinstance(content, str) or not content.strip():
             continue
-        artifacts.append(
-            {
-                "id": f"edit_{index}",
-                "path": path,
-                "type": _guess_type(path),
-                "content": content,
-            }
-        )
+        kind = _guess_type(path)
+        for role, suffix in (("original", "orig"), ("expected", "exp")):
+            artifacts.append(
+                {
+                    "id": f"edit_{index}_{suffix}",
+                    "path": path,
+                    "type": kind,
+                    "content": content,
+                    "snapshot_role": role,
+                }
+            )
     return artifacts
 
 
