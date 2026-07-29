@@ -47,6 +47,15 @@ def test_workspace_from_config_paths(workspace_config: object) -> None:
     assert ws.checkpoints_root("coding") == ws.training / "cache" / "coding" / "checkpoints"
     # Accepts legacy EXP ids too, normalizing to the semantic training id.
     assert ws.checkpoints_root("EXP-0001") == ws.checkpoints_root("coding")
+    # Dual-base context cache folders are not training ids — keep as-is.
+    assert (
+        ws.checkpoints_root("context-deepseek")
+        == ws.training / "cache" / "context-deepseek" / "checkpoints"
+    )
+    assert (
+        ws.checkpoints_root("context-qwen")
+        == ws.training / "cache" / "context-qwen" / "checkpoints"
+    )
 
 
 def test_ensure_workspace_layout_creates_directories(workspace_config: object) -> None:

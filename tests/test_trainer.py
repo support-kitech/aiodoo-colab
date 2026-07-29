@@ -75,6 +75,27 @@ def test_build_training_context_resolves_paths(prepared: tuple[Workspace, Experi
     assert context.training_config_path.name == "training.yaml"
 
 
+def test_build_training_context_dual_base_cache_id(
+    prepared: tuple[Workspace, ExperimentStore],
+) -> None:
+    """cache_id like context-deepseek must not be validated as a training id."""
+    ws, store = prepared
+    _write_experiment(ws, "context")
+    experiment = store.load("context")
+    context = build_training_context(
+        ws,
+        experiment,
+        adapter_id="aiodoo-context-deepseek",
+        cache_id="context-deepseek",
+    )
+    assert context.adapter_output == ws.models / "adapters" / "aiodoo-context-deepseek"
+    assert (
+        context.checkpoints_output
+        == ws.training / "cache" / "context-deepseek" / "checkpoints"
+    )
+    assert context.logs_output == ws.experiments / "context" / "logs"
+
+
 def test_run_training_invokes_public_entrypoint(
     prepared: tuple[Workspace, ExperimentStore],
 ) -> None:

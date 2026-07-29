@@ -127,6 +127,8 @@ def _output_paths(
     """
     training_id = normalize_training_id(experiment_id)
     resolved_adapter = (adapter_id or "").strip() or adapter_product_id(training_id)
+    # cache_id may be a dual-base folder (context-qwen / context-deepseek), not a
+    # training id — checkpoints_root accepts both.
     resolved_cache = (cache_id or "").strip() or training_id
     return {
         "adapter_output": workspace.models / MODELS_ADAPTERS_DIR_NAME / resolved_adapter,

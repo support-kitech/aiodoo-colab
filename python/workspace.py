@@ -80,16 +80,29 @@ class Workspace:
         """Root for ephemeral per-training runtime cache (checkpoints, resume configs)."""
         return self.training / TRAINING_CACHE_DIR_NAME
 
-    def checkpoints_root(self, training_id: str) -> Path:
+    def checkpoints_root(self, cache_id: str) -> Path:
         """
-        Canonical checkpoint directory for one training id (persistent).
+        Canonical checkpoint directory (persistent).
 
-        Matches aiodoo-training's ``ArtifactOutputLayout.adapter_checkpoints_dir``
-        exactly (``training/cache/<training_id>/checkpoints/``) — this is the
-        single source of truth other modules (``trainer``, ``artifacts``) must
-        use instead of re-deriving the path locally.
+        Matches aiodoo-training's ``ArtifactOutputLayout.adapter_checkpoints_dir``:
+        ``training/cache/<cache_id>/checkpoints/``.
+
+        ``cache_id`` is usually the public training id (``coding``, ``context``, …)
+        but may be a dual-base override such as ``context-qwen`` /
+        ``context-deepseek``. Known training ids and legacy ``EXP-####`` refs are
+        still normalized; other non-empty cache folder names are used as-is.
         """
-        return self.training_cache / normalize_training_id(training_id) / CHECKPOINTS_DIR_NAME
+        folder = (cache_id or "").strip()
+        if not folder:
+            raise ValueError("cache_id must be a non-empty string")
+        if "/" in folder or "\\" in folder or folder in {".", ".."}:
+            raise ValueError(f"Invalid cache_id for checkpoint path: {cache_id!r}")
+        try:
+            folder = normalize_training_id(folder)
+        except ValueError:
+            # Dual-base cache folders (e.g. context-deepseek) are not training ids.
+            pass
+        return self.training_cache / folder / CHECKPOINTS_DIR_NAME
 
     @classmethod
     def from_config(cls, config: ColabConfig) -> Workspace:
