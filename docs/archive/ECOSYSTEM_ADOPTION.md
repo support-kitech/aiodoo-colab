@@ -1,3 +1,8 @@
+> **Historical document.** Written when Git tags / release identity existed.
+> Git tags and GitHub Releases were later removed ecosystem-wide.
+> **Current source of truth:** branch `main` only. See `docs/STATUS.md`.
+> Do not treat tag or release recommendations in this file as current instructions.
+
 # Ecosystem Adoption (Phase 8)
 
 Scope: upgrading `aiodoo-colab` from a **training launcher** (v2.0.0 —

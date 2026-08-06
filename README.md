@@ -3,7 +3,7 @@
 > Thin Google Colab orchestration for the AIODOO ecosystem: training,
 > validation, and model packaging.
 >
-> **v2.0.0:** default training ref is tag `v2.0.0` (not moving `main`).
+> **Current:** default training git ref is branch **`main`** (Git tags were removed; `main` is SoT).
 
 ---
 
@@ -24,7 +24,7 @@ Drive.
 
 **This repository does not train models, validate/certify models, or
 package/merge adapters.** It only orchestrates the repositories that do. See
-`ECOSYSTEM_ADOPTION.md` for the full Phase 8 integration writeup.
+`docs/archive/ECOSYSTEM_ADOPTION.md` for the full Phase 8 integration writeup.
 
 ---
 
@@ -102,7 +102,7 @@ logic)       certification)                  structure)
 - Checkpoint *content* validation (RNG state, optimizer state, fingerprints)
 
 Those remain permanently in `aiodoo-training`, `aiodoo-validation`, and
-`aiodoo-model` respectively — see `ECOSYSTEM_ADOPTION.md`.
+`aiodoo-model` respectively — see `docs/archive/ECOSYSTEM_ADOPTION.md`.
 
 ---
 
@@ -119,7 +119,7 @@ Those remain permanently in `aiodoo-training`, `aiodoo-validation`, and
 
 **Phase 8:** `aiodoo-colab` is the canonical orchestration environment for
 training, validation, model packaging, and experiments — see
-`ECOSYSTEM_ADOPTION.md` for the full integration writeup, duplication
+`docs/archive/ECOSYSTEM_ADOPTION.md` for the full integration writeup, duplication
 removed/retained, and reliability improvements.
 
 ---
@@ -157,7 +157,7 @@ Phase 8 adds: resume-aware training launch (`trainer.resolve_resume_checkpoint`
 / `prepare_resume_config`), read-only checkpoint/artifact discovery
 (`artifacts.py`), evaluation orchestration via `aiodoo-validation`
 (`validation.py`), and adapter publishing/resolution via `aiodoo-model`
-(`packaging.py`) — see `ECOSYSTEM_ADOPTION.md`.
+(`packaging.py`) — see `docs/archive/ECOSYSTEM_ADOPTION.md`.
 
 ---
 
@@ -395,3 +395,8 @@ python3 -m pytest
 - Dataclasses where structured config appears (later phases)
 - No side effects on import
 - Deterministic, production-ready, minimal
+
+## Status
+
+Living repository posture: [`docs/STATUS.md`](docs/STATUS.md).
+Historical reports: [`docs/archive/`](docs/archive/).

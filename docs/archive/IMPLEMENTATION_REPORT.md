@@ -1,3 +1,8 @@
+> **Historical document.** Written when Git tags / release identity existed.
+> Git tags and GitHub Releases were later removed ecosystem-wide.
+> **Current source of truth:** branch `main` only. See `docs/STATUS.md`.
+> Do not treat tag or release recommendations in this file as current instructions.
+
 # aiodoo-colab — Implementation Report (v2.0.0)
 
 ## Summary
@@ -15,7 +20,7 @@ Version `2.0.0`; default training ref `v2.0.0`; minimal CI; ruff fixes.
 | Path | Change |
 | --- | --- |
 | `AUDIT_RESOLUTION.md` | Batch A DONE + Batch B; prompt-vs-freeze note |
-| `RELEASE_REPORT.md` | **New** — dual verdict |
+| `docs/archive/RELEASE_REPORT.md` | **New** — dual verdict |
 | `IMPLEMENTATION_REPORT.md` | This refresh |
 | `CHANGELOG.md` | Completion residual note |
 | `README.md` | Ecosystem table → `aiodoo-model`; multi-repo = Future Work |

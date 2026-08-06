@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Documentation sync: `main` is source of truth; living posture in `docs/STATUS.md`; historical reports under `docs/archive/`; cross-references updated after archive moves and Git tag metadata reset.
+
+
 ## [2.0.0] — 2026-07-20 (Phase 8 — ecosystem adoption)
 
 ### Added
@@ -25,7 +30,7 @@
   `PackagingIntegrationError` exception types.
 - `notebooks/01_train.ipynb` extended: `TrainingMonitor` + resume-aware
   launch, artifact browsing, validation, and packaging cells.
-- `ECOSYSTEM_ADOPTION.md`.
+- `docs/archive/ECOSYSTEM_ADOPTION.md`.
 - Test suites: `test_artifacts.py`, `test_validation.py`, `test_packaging.py`,
   `test_launcher.py`; `test_workspace.py`/`test_trainer.py`/`test_drive.py`
   extended for the additions above.
@@ -56,5 +61,5 @@
 - Ruff E501 / UP035
 
 ### Completion residuals (Batch B)
-- `RELEASE_REPORT.md`; audit Batch A/B structure
+- `docs/archive/RELEASE_REPORT.md`; audit Batch A/B structure
 - README ecosystem table aligned (`aiodoo-model`; multi-repo pipeline deferred)
