@@ -9,6 +9,10 @@ import pytest
 
 from config import load_config
 from exceptions import ModelDownloadError, ModelNotFoundError, ModelVerificationError
+from constants import (
+    DEVELOPMENT_FOUNDATION_HUB_ID,
+    REASONING_FOUNDATION_HUB_ID,
+)
 from models import ModelStore, deterministic_model_dirname
 from workspace import Workspace
 
@@ -34,9 +38,11 @@ def _write_valid_model(path: Path) -> None:
 
 
 def test_deterministic_model_dirname_preserves_org() -> None:
-    assert deterministic_model_dirname("Qwen/Qwen3-8B") == "Qwen__Qwen3-8B"
-    assert deterministic_model_dirname("deepseek-ai/DeepSeek-R1-0528-Qwen3-8B") == (
-        "deepseek-ai__DeepSeek-R1-0528-Qwen3-8B"
+    assert deterministic_model_dirname(DEVELOPMENT_FOUNDATION_HUB_ID) == (
+        "deepseek-ai__DeepSeek-Coder-V2-Lite-Instruct"
+    )
+    assert deterministic_model_dirname(REASONING_FOUNDATION_HUB_ID) == (
+        "deepseek-ai__deepseek-vl2"
     )
     assert deterministic_model_dirname("Standalone-Model") == "Standalone-Model"
 

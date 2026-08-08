@@ -27,8 +27,8 @@ def deterministic_model_dirname(model_id: str) -> str:
 
     Replaces ``/`` with ``__`` so org and name are preserved:
 
-    - ``Qwen/Qwen3-8B`` → ``Qwen__Qwen3-8B``
-    - ``deepseek-ai/DeepSeek-R1-0528-Qwen3-8B`` → ``deepseek-ai__DeepSeek-R1-0528-Qwen3-8B``
+    - ``deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct`` → ``deepseek-ai__DeepSeek-Coder-V2-Lite-Instruct``
+    - ``deepseek-ai/deepseek-vl2`` → ``deepseek-ai__deepseek-vl2``
     - ``Standalone-Model`` → ``Standalone-Model``
     """
     cleaned = model_id.strip().rstrip("/")

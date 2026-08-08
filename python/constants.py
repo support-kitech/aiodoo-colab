@@ -100,6 +100,15 @@ TRAINING_REPOSITORY_MARKERS: tuple[str, ...] = (
 # Adapters / checkpoints / merged / exports remain under AIODOO/models/ on Drive.
 DEFAULT_MODEL_CACHE_ROOT: Path = Path("/content/aiodoo-model-cache")
 
+# FW0 System Spine — frozen foundation Hub ids (must match aiodoo_contract.foundations;
+# colab does not import aiodoo_contract — ADR-0008 orchestration boundary).
+DEVELOPMENT_FOUNDATION_HUB_ID: str = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
+REASONING_FOUNDATION_HUB_ID: str = "deepseek-ai/deepseek-vl2"
+FOUNDATION_HUB_IDS: tuple[str, ...] = (
+    DEVELOPMENT_FOUNDATION_HUB_ID,
+    REASONING_FOUNDATION_HUB_ID,
+)
+
 # Required marker files for a usable Hugging Face model snapshot.
 MODEL_REQUIRED_FILES: tuple[str, ...] = ("config.json",)
 
@@ -143,8 +152,10 @@ __all__ = [
     "DATASETS_RELATIVE",
     "DEFAULT_DRIVE_MOUNT_RELATIVE",
     "DEFAULT_MODEL_CACHE_ROOT",
+    "DEVELOPMENT_FOUNDATION_HUB_ID",
     "EXPERIMENTS_DIR_NAME",
     "EXPERIMENTS_RELATIVE",
+    "FOUNDATION_HUB_IDS",
     "GOOGLE_DRIVE_ROOT_NAME",
     "LOGS_DIR_NAME",
     "LOGS_RELATIVE",
@@ -162,6 +173,7 @@ __all__ = [
     "MODELS_RELATIVE",
     "MODEL_REQUIRED_FILES",
     "MODEL_WEIGHT_SUFFIXES",
+    "REASONING_FOUNDATION_HUB_ID",
     "REQUIRED_MODELS_SUBDIRS",
     "REQUIRED_TOP_LEVEL_DIRS",
     "RESUME_CONFIG_FILENAME",
