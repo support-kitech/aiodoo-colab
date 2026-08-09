@@ -16,6 +16,7 @@ Colab / Drive orchestration for training launches (subprocess). Does not own tra
 | Training orchestration launcher | Shipped |
 | Product composition | Out of scope |
 | Full multi-repo product pipeline in Colab | **Not shipped** — optional Future Work |
+| Required for Running System (ECO-1) | **No** — Training infrastructure only |
 
 ## Living docs
 
